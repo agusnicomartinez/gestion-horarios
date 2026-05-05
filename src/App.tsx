@@ -7,8 +7,7 @@ function App() {
         panel del empleado, generación de cronograma) se implementa en la próxima iteración.
       </p>
       <p style={{ color: '#666', fontSize: '0.9rem' }}>
-        Antes de seguir, configurá Supabase con <code>supabase/schema.sql</code> y rellená{' '}
-        <code>.env</code> con las credenciales del proyecto.
+        v0: los datos viven en <code>localStorage</code>. No requiere setup adicional.
       </p>
     </main>
   )

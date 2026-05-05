@@ -2,13 +2,15 @@
 
 App web mobile-first para que un supervisor gestione los turnos mensuales de un equipo pequeño (6 empleados) y para que cada empleado solicite vacaciones / días libres y consulte el cronograma publicado.
 
-**Stack:** React + TypeScript + Vite · Supabase (Postgres + auth) · GitHub Pages · GitHub Actions.
+**Stack:** React + TypeScript + Vite · localStorage (v0) · GitHub Pages · GitHub Actions.
+
+> **v0 — almacenamiento local:** los datos viven en el `localStorage` del navegador. Cada navegador/dispositivo tiene su propia copia, **no hay sincronización entre usuarios**. Apta para prototipo y para que un solo dispositivo pruebe todos los roles. La migración a backend SQL queda pendiente como issue separado; el schema está conservado en [`docs/future-sql-schema.sql`](docs/future-sql-schema.sql).
 
 ---
 
 ## Estado actual
 
-Setup inicial: proyecto Vite, dependencias (Supabase, React Router, date-fns), schema SQL, workflow de deploy y placeholder de UI. La aplicación se construye en la siguiente iteración.
+Setup inicial: proyecto Vite, capa de datos en `localStorage` con tipos compartidos, seed de festivos de Barcelona 2026, workflow de deploy y placeholder de UI. La aplicación se construye en la siguiente iteración.
 
 ---
 
@@ -16,28 +18,8 @@ Setup inicial: proyecto Vite, dependencias (Supabase, React Router, date-fns), s
 
 ### 1. Requisitos
 - Node.js 20+
-- Cuenta en [supabase.com](https://supabase.com) (free tier alcanza)
 
-### 2. Crear proyecto en Supabase
-
-1. Entrá a https://supabase.com → **New project**.
-2. Nombre: `gestion-horarios`. Elegí región más cercana a Barcelona (eu-west).
-3. Anotá la contraseña de la DB (no se usa desde el front, pero la vas a necesitar si querés conectarte por psql).
-4. Esperá ~1 minuto a que aprovisione.
-5. **Project Settings → API** copiá:
-   - `Project URL` → va a `VITE_SUPABASE_URL`
-   - `anon public` key → va a `VITE_SUPABASE_ANON_KEY`
-6. **SQL Editor → New query** → pegá el contenido de [`supabase/schema.sql`](supabase/schema.sql) y ejecutalo. Crea tablas, enums, seed de festivos de Barcelona 2026 y políticas RLS.
-7. **(Importante)** En la tabla `supervisors` ya hay un row con DNI `00000000A`. Editalo (Table Editor) y poné tu DNI real para poder loguearte como supervisor.
-
-### 3. Variables de entorno
-
-```bash
-cp .env.example .env
-# editá .env con las credenciales del paso 2.5
-```
-
-### 4. Correr en local
+### 2. Instalar y correr
 
 ```bash
 npm install
@@ -46,32 +28,35 @@ npm run dev
 
 App en http://localhost:5173/gestion-horarios/
 
+No requiere variables de entorno ni cuentas externas.
+
+### 3. Resetear los datos locales
+
+En la consola del navegador:
+
+```js
+Object.keys(localStorage).filter(k => k.startsWith('gh:')).forEach(k => localStorage.removeItem(k))
+```
+
+O desde el código: `import { db } from './lib/db'; db.resetAll()`.
+
 ---
 
 ## Deploy a GitHub Pages
 
 El deploy se dispara con cada **release publicada** (también manualmente vía `workflow_dispatch`).
 
-### 1. Configurar secrets del repo
-
-En GitHub → **Settings → Secrets and variables → Actions → New repository secret**:
-
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-
-(Usá los mismos valores del `.env` local — la `anon key` es pública por diseño, pero pasarla por secret evita commitearla.)
-
-### 2. Habilitar GitHub Pages
+### 1. Habilitar GitHub Pages
 
 En GitHub → **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
-### 3. Publicar una release
+### 2. Publicar una release
 
 ```bash
 gh release create v0.1.0 --title "v0.1.0" --notes "Setup inicial"
 ```
 
-El workflow `.github/workflows/deploy.yml` corre, buildea con las env vars como secrets, y publica en `https://agusnicomartinez.github.io/gestion-horarios/`.
+El workflow `.github/workflows/deploy.yml` corre, buildea y publica en `https://agusnicomartinez.github.io/gestion-horarios/`.
 
 > **404.html**: el workflow copia `index.html` a `404.html` para que las rutas SPA funcionen al refrescar en GitHub Pages.
 
@@ -79,7 +64,23 @@ El workflow `.github/workflows/deploy.yml` corre, buildea con las env vars como 
 
 ## Modelo de autenticación (v0)
 
-Login con DNI sin contraseña. Se valida contra las tablas `supervisors` y `employees`; la sesión vive en `localStorage`. RLS está activo pero permisivo para el rol `anon`; la autorización efectiva pasa por el cliente. Issue [#3](https://github.com/agusnicomartinez/gestion-horarios/issues/3) cambia esto a auth con contraseña + RLS basado en `auth.uid()`.
+Login con DNI sin contraseña. Se valida contra los registros locales de supervisores y empleados; la sesión vive en una clave aparte del `localStorage`. Issue [#3](https://github.com/agusnicomartinez/gestion-horarios/issues/3) cambia esto a auth con contraseña cuando exista backend real.
+
+---
+
+## Capa de datos
+
+Todo el acceso pasa por [`src/lib/db.ts`](src/lib/db.ts), que expone una API tipada y **asíncrona** sobre `localStorage`:
+
+```ts
+import { db } from './lib/db'
+
+const employees = await db.employees.list()
+const created = await db.employees.insert({ dni, full_name, shift_type, active, created_at })
+await db.employees.update(id, { active: false })
+```
+
+La interfaz async es deliberada: cuando migremos a un backend real (Supabase, Postgres, etc.) las llamadas del consumer no cambian, solo se reemplaza el archivo `db.ts`.
 
 ---
 
@@ -87,13 +88,13 @@ Login con DNI sin contraseña. Se valida contra las tablas `supervisors` y `empl
 
 ```
 src/
-  lib/         → cliente Supabase
-  types/       → tipos TS de la DB
+  lib/         → capa de datos (localStorage)
+  types/       → tipos TS de las "tablas"
   pages/       → rutas (login, supervisor, employee)
   components/  → UI compartida
   hooks/       → hooks (useSession, useSchedule, ...)
-supabase/
-  schema.sql   → schema + seed
+docs/
+  future-sql-schema.sql   → schema Postgres para la futura migración a backend real
 .github/workflows/
   deploy.yml   → CI/CD a GitHub Pages
 ```
@@ -125,3 +126,4 @@ supabase/
 - [#1](https://github.com/agusnicomartinez/gestion-horarios/issues/1) Equipos de tamaño variable
 - [#2](https://github.com/agusnicomartinez/gestion-horarios/issues/2) Dashboard con gráficos
 - [#3](https://github.com/agusnicomartinez/gestion-horarios/issues/3) Autenticación con contraseña
+- _(pendiente de crear)_ Migración de localStorage a backend SQL para sync multi-usuario

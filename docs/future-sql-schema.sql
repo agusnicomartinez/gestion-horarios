@@ -1,5 +1,9 @@
--- Gestión de Horarios - Database Schema
--- Run this in Supabase SQL Editor (Project → SQL Editor → New query)
+-- Gestión de Horarios - FUTURE SQL Schema (not used in v0)
+--
+-- v0 uses localStorage only — see src/lib/db.ts.
+-- This file is kept as the canonical reference for the planned migration to
+-- Supabase / Postgres. When we cut over, this is what gets executed in the
+-- Supabase SQL Editor (Project → SQL Editor → New query).
 
 -- =========================================================================
 -- EXTENSIONS
