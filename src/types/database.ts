@@ -2,6 +2,8 @@ export type ShiftType = 'morning' | 'afternoon' | 'both'
 export type RequestType = 'vacation' | 'personal' | 'holiday'
 export type RequestStatus = 'pending' | 'approved' | 'rejected'
 export type Shift = 'morning' | 'afternoon' | 'off'
+export type ScheduleStatus = 'draft' | 'published'
+export type EntrySource = 'auto' | 'manual' | 'request'
 
 export interface Employee {
   id: string
@@ -41,38 +43,24 @@ export interface DayRequest {
   end_date: string
   status: RequestStatus
   target_month: string
-  created_at: string
-  reviewed_at: string | null
-  reviewed_by: string | null
-}
-
-export interface ScheduleEntry {
-  id: string
-  employee_id: string
-  date: string
-  shift: Shift
-  source: 'auto' | 'manual' | 'request'
-  published: boolean
+  created_at?: string
+  reviewed_at?: string | null
+  reviewed_by?: string | null
 }
 
 export interface Schedule {
   id: string
   month: string
-  status: 'draft' | 'published'
-  published_at: string | null
+  status: ScheduleStatus
   created_at: string
+  published_at?: string | null
 }
 
-export interface Database {
-  public: {
-    Tables: {
-      employees: { Row: Employee; Insert: Omit<Employee, 'id' | 'created_at'>; Update: Partial<Employee> }
-      supervisors: { Row: Supervisor; Insert: Omit<Supervisor, 'id' | 'created_at'>; Update: Partial<Supervisor> }
-      global_settings: { Row: GlobalSettings; Insert: Partial<GlobalSettings>; Update: Partial<GlobalSettings> }
-      public_holidays: { Row: PublicHoliday; Insert: Omit<PublicHoliday, 'id'>; Update: Partial<PublicHoliday> }
-      day_requests: { Row: DayRequest; Insert: Omit<DayRequest, 'id' | 'created_at' | 'reviewed_at' | 'reviewed_by'>; Update: Partial<DayRequest> }
-      schedules: { Row: Schedule; Insert: Omit<Schedule, 'id' | 'created_at' | 'published_at'>; Update: Partial<Schedule> }
-      schedule_entries: { Row: ScheduleEntry; Insert: Omit<ScheduleEntry, 'id'>; Update: Partial<ScheduleEntry> }
-    }
-  }
+export interface ScheduleEntry {
+  id: string
+  schedule_id: string
+  employee_id: string
+  date: string
+  shift: Shift
+  source: EntrySource
 }

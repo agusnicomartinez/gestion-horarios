@@ -1,15 +1,62 @@
+import { useEffect, useState } from 'react'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { useSession } from './hooks/useSession'
+import { hasAnySupervisor } from './lib/session'
+import { seedIfEmpty } from './lib/db'
+import Login from './pages/Login'
+import Setup from './pages/Setup'
+import Layout from './components/Layout'
+import Employees from './pages/supervisor/Employees'
+import Settings from './pages/supervisor/Settings'
+import Requests from './pages/supervisor/Requests'
+import SupervisorSchedule from './pages/supervisor/Schedule'
+import EmployeeRequest from './pages/employee/Request'
+import MySchedule from './pages/employee/MySchedule'
+
 function App() {
+  const session = useSession()
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    seedIfEmpty().then(async () => {
+      setNeedsSetup(!(await hasAnySupervisor()))
+    })
+  }, [session?.userId])
+
+  if (needsSetup === null) {
+    return <main className="auth"><div className="card"><p>Cargando...</p></div></main>
+  }
+
   return (
-    <main style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif', maxWidth: 720, margin: '0 auto' }}>
-      <h1>Gestión de Horarios</h1>
-      <p>
-        Proyecto inicializado. La aplicación (login con DNI, panel del supervisor,
-        panel del empleado, generación de cronograma) se implementa en la próxima iteración.
-      </p>
-      <p style={{ color: '#666', fontSize: '0.9rem' }}>
-        v0: los datos viven en <code>localStorage</code>. No requiere setup adicional.
-      </p>
-    </main>
+    <BrowserRouter basename="/gestion-horarios">
+      <Routes>
+        {needsSetup ? (
+          <>
+            <Route path="/setup" element={<Setup />} />
+            <Route path="*" element={<Navigate to="/setup" replace />} />
+          </>
+        ) : !session ? (
+          <>
+            <Route path="/login" element={<Login />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </>
+        ) : session.role === 'supervisor' ? (
+          <Route element={<Layout />}>
+            <Route path="/supervisor" element={<SupervisorSchedule />} />
+            <Route path="/supervisor/employees" element={<Employees />} />
+            <Route path="/supervisor/settings" element={<Settings />} />
+            <Route path="/supervisor/requests" element={<Requests />} />
+            <Route path="*" element={<Navigate to="/supervisor" replace />} />
+          </Route>
+        ) : (
+          <Route element={<Layout />}>
+            <Route path="/employee" element={<MySchedule />} />
+            <Route path="/employee/request" element={<EmployeeRequest />} />
+            <Route path="*" element={<Navigate to="/employee" replace />} />
+          </Route>
+        )}
+      </Routes>
+    </BrowserRouter>
   )
 }
 
