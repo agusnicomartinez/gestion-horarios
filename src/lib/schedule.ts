@@ -135,6 +135,74 @@ function canSustainStretch(
   return true
 }
 
+interface Weekend {
+  sat: string
+  sun: string
+}
+
+function findWeekends(monthDays: Date[]): Weekend[] {
+  const weekends: Weekend[] = []
+  for (let i = 0; i < monthDays.length - 1; i++) {
+    const d = monthDays[i]
+    const next = monthDays[i + 1]
+    if (d.getDay() === 6 && next.getDay() === 0) {
+      weekends.push({ sat: toISO(d), sun: toISO(next) })
+    }
+  }
+  return weekends
+}
+
+function hasFullWeekendOff(
+  empId: string,
+  weekends: Weekend[],
+  requests: DayRequest[],
+): boolean {
+  for (const w of weekends) {
+    const satOff = requests.some(
+      (r) =>
+        r.employee_id === empId &&
+        r.status === 'approved' &&
+        w.sat >= r.start_date &&
+        w.sat <= r.end_date,
+    )
+    const sunOff = requests.some(
+      (r) =>
+        r.employee_id === empId &&
+        r.status === 'approved' &&
+        w.sun >= r.start_date &&
+        w.sun <= r.end_date,
+    )
+    if (satOff && sunOff) return true
+  }
+  return false
+}
+
+function assignWeekendOffs(
+  employees: Employee[],
+  weekends: Weekend[],
+  approvedRequests: DayRequest[],
+  monthISO: string,
+): DayRequest[] {
+  if (weekends.length === 0) return []
+  const synthetic: DayRequest[] = []
+  let cursor = 0
+  for (const e of employees) {
+    if (hasFullWeekendOff(e.id, weekends, approvedRequests)) continue
+    const w = weekends[cursor % weekends.length]
+    synthetic.push({
+      id: `weekend-off-${e.id}-${w.sat}`,
+      employee_id: e.id,
+      type: 'personal',
+      start_date: w.sat,
+      end_date: w.sun,
+      status: 'approved',
+      target_month: monthISO,
+    })
+    cursor++
+  }
+  return synthetic
+}
+
 function applyCarryOver(stats: Stats, recent: Shift[]) {
   if (recent.length === 0) return
   const last = recent[recent.length - 1]
@@ -194,6 +262,15 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     stats.set(e.id, s)
   }
 
+  const weekendsInMonth = findWeekends(days)
+  const syntheticWeekendOffs = assignWeekendOffs(
+    input.employees,
+    weekendsInMonth,
+    input.approvedRequests,
+    input.monthISO,
+  )
+  const allOffs: DayRequest[] = [...input.approvedRequests, ...syntheticWeekendOffs]
+
   let prevWasWeekend = false
 
   for (const day of days) {
@@ -206,7 +283,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     }
 
     for (const e of input.employees) {
-      if (isOff(e.id, dISO, input.approvedRequests)) {
+      if (isOff(e.id, dISO, allOffs)) {
         dailyAssignment.set(e.id, 'off')
       }
     }
@@ -224,7 +301,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
           }
         }
       } else {
-        if (!canSustainStretch(e.id, dISO, input.approvedRequests)) continue
+        if (t > 0 && !canSustainStretch(e.id, dISO, allOffs)) continue
         if (shiftAllowed(e, 'morning') && s.lastShift !== 'afternoon') {
           cands.push({ emp: e, shift: 'morning', tierVal: t })
         }
@@ -313,7 +390,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
         source: 'auto',
       })
       const s = stats.get(e.id)!
-      const wasApprovedOff = isOff(e.id, dISO, input.approvedRequests)
+      const wasApprovedOff = isOff(e.id, dISO, allOffs)
 
       if (final !== 'off') {
         if (s.stretchDay === 0) {
@@ -340,12 +417,11 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
           s.stretchDay = 0
           s.stretchShift = 'off'
         }
-        if (wasApprovedOff) {
-          s.consecutiveOff = MIN_REST
-        } else {
-          s.consecutiveOff += 1
+        s.consecutiveOff += 1
+        s.lastShift = 'off'
+        if (!wasApprovedOff && canSustainStretch(e.id, dISO, allOffs)) {
           const myMax = maxRestFor(s)
-          if (s.consecutiveOff > myMax && canSustainStretch(e.id, dISO, input.approvedRequests)) {
+          if (s.consecutiveOff > myMax) {
             violations.push({
               date: dISO,
               kind: 'over-max-rest',
@@ -354,7 +430,6 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
             })
           }
         }
-        s.lastShift = 'off'
       }
     }
 
