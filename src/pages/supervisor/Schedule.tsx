@@ -53,6 +53,7 @@ export default function SupervisorSchedule() {
 
   async function onGenerate() {
     setBusy(true)
+    setViolations([])
     try {
       let sch = schedule
       if (!sch) {
@@ -62,8 +63,7 @@ export default function SupervisorSchedule() {
           created_at: new Date().toISOString(),
         })
       } else {
-        const existingEntries = (await db.scheduleEntries.list()).filter((e) => e.schedule_id === sch!.id)
-        for (const e of existingEntries) await db.scheduleEntries.remove(e.id)
+        await db.scheduleEntries.removeWhere((e) => e.schedule_id === sch!.id)
         sch = await db.schedules.update(sch.id, { status: 'draft', published_at: null })
       }
 
@@ -86,14 +86,14 @@ export default function SupervisorSchedule() {
         carryOver: carryOverFromEntries(prevEntries, targetMonth),
       })
 
-      for (const e of result.entries) {
-        await db.scheduleEntries.insert({
-          ...e,
-          schedule_id: sch!.id,
-        })
-      }
+      await db.scheduleEntries.insertMany(
+        result.entries.map((e) => ({ ...e, schedule_id: sch!.id })),
+      )
       setViolations(result.violations)
-      reload()
+      await reload()
+    } catch (err) {
+      console.error('Generate failed:', err)
+      alert(`Error al generar el cronograma: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setBusy(false)
     }

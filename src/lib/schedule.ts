@@ -316,6 +316,9 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       if (a.tierVal !== b.tierVal) return a.tierVal - b.tierVal
       const sA = stats.get(a.emp.id)!
       const sB = stats.get(b.emp.id)!
+      const midA = sA.stretchDay >= 1 ? 0 : 1
+      const midB = sB.stretchDay >= 1 ? 0 : 1
+      if (midA !== midB) return midA - midB
       return sA.totalShifts - sB.totalShifts
     })
 

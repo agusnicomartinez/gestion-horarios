@@ -62,6 +62,19 @@ function tableOf<T extends Row>(key: string) {
         all.filter((r) => r.id !== id),
       )
     },
+    async insertMany(inputs: Omit<T, 'id'>[]): Promise<T[]> {
+      const all = read<T[]>(key, [])
+      const rows = inputs.map((input) => ({ ...input, id: uid() } as unknown as T))
+      write(key, [...all, ...rows])
+      return rows
+    },
+    async removeWhere(predicate: (r: T) => boolean): Promise<number> {
+      const all = read<T[]>(key, [])
+      const kept = all.filter((r) => !predicate(r))
+      const removed = all.length - kept.length
+      write(key, kept)
+      return removed
+    },
   }
 }
 
