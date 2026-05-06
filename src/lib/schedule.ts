@@ -9,30 +9,50 @@ import { eachDayInMonth, fromISO, isWeekend, toISO, addDays } from './dates'
 import { format } from 'date-fns'
 
 /**
- * Schedule generation algorithm.
+ * Schedule generation algorithm — v2.
  *
- * Core idea: each employee works in stretches (ciclos) of 4-7 consecutive days
- * (ideally 5-6), staying on the same shift (morning or afternoon) for the whole
- * stretch. Between stretches they rest 2 days (3 days if the previous stretch
- * was the maximum 7 days).
+ * Rules
+ * ─────
+ *  Stretches (ciclos de trabajo): 4-7 consecutive days, ideally 5-6.
+ *    Same shift (morning OR afternoon) for the whole stretch — no flips inside.
+ *  Rest: 2-4 days normally (ideally 2-3), forced back to work after 4.
+ *    After a maxed 7-day stretch: rest is exactly 3 days.
+ *  Coverage: ≥1 employee on morning, ≥1 on afternoon every day.
+ *  Sequence: no afternoon → morning when starting a new stretch.
  *
- * The algorithm walks day-by-day and, for each shift slot, prefers candidates
- * by tier:
- *   tier 0  mid-stretch days 1-3  (must continue: would otherwise break min-4)
- *   tier 1  mid-stretch day 4     (strong continue, target ideal 5-6)
- *   tier 2  fresh, fully rested   (start a new stretch)
- *   tier 3  mid-stretch days 5-6  (weak continue, prefer ending here)
- *   blocked mid-stretch day 7     (forced end after this day)
+ * The algorithm walks day-by-day and groups eligible employees into tiers:
  *
- * Ties within a tier are broken by total shifts in the month (fairness).
- * Violations (no-coverage, forced-start, short-stretch, no-weekend-rest) are
- * reported, never silently swallowed; the supervisor adjusts manually.
+ *   tier 0  must work today
+ *           - mid-stretch days 1-3  (else min-4 violation)
+ *           - rest maxed (consecutiveOff ≥ maxRest)
+ *   tier 1  prefer to work today
+ *           - mid-stretch day 4     (toward ideal 5-6)
+ *           - rest at maxRest-1     (last preferred day before forced)
+ *   tier 2  fresh, optional
+ *           - rest in [minRest, maxRest-1)
+ *   tier 3  mid-stretch day 5       (could continue toward 6)
+ *   tier 4  mid-stretch day 6       (prefer end at ideal max)
+ *   tier 5  blocked
+ *           - mid-stretch day 7     (must rest tomorrow)
+ *           - rest below minRest    (still resting)
+ *
+ * Slot allocation per day:
+ *   Pass 1 — assign all tier 0 (must work). Their shift slots grow naturally
+ *            so multiple morning or afternoon workers share a day.
+ *   Pass 2 — fill until coverage minimums (1 morning + 1 afternoon, or
+ *            morningSlotsPerDay if supervisor-configured) using tier 1, 2, 3, 4.
+ *
+ * With 6 employees and the 5:2 ratio, this produces ~4 working/day naturally,
+ * spread between the two shifts.
  */
 
 const MIN_STRETCH = 4
 const MAX_STRETCH = 7
+const IDEAL_MAX_STRETCH = 6
+const MIN_REST = 2
+const PREFERRED_MAX_REST = 3
+const MAX_REST = 4
 const REST_AFTER_FULL = 3
-const REST_AFTER_NORMAL = 2
 
 export interface GenerateInput {
   monthISO: string
@@ -54,7 +74,7 @@ export interface Violation {
     | 'no-morning-coverage'
     | 'no-afternoon-coverage'
     | 'short-stretch'
-    | 'forced-start'
+    | 'over-max-rest'
     | 'no-weekend-rest'
   detail: string
   employeeId?: string
@@ -75,7 +95,7 @@ function makeInitialStats(): Stats {
   return {
     stretchDay: 0,
     stretchShift: 'off',
-    consecutiveOff: 99,
+    consecutiveOff: MIN_REST,
     lastStretchLength: 0,
     totalShifts: 0,
     lastShift: 'off',
@@ -102,6 +122,19 @@ function isOff(empId: string, dateISO: string, requests: DayRequest[]): boolean 
   )
 }
 
+function canSustainStretch(
+  empId: string,
+  dateISO: string,
+  requests: DayRequest[],
+): boolean {
+  const start = fromISO(dateISO)
+  for (let i = 0; i < MIN_STRETCH; i++) {
+    const d = toISO(addDays(start, i))
+    if (isOff(empId, d, requests)) return false
+  }
+  return true
+}
+
 function applyCarryOver(stats: Stats, recent: Shift[]) {
   if (recent.length === 0) return
   const last = recent[recent.length - 1]
@@ -122,11 +155,30 @@ function applyCarryOver(stats: Stats, recent: Shift[]) {
   stats.lastShift = last
 }
 
+function minRestFor(s: Stats): number {
+  return s.lastStretchLength >= MAX_STRETCH ? REST_AFTER_FULL : MIN_REST
+}
+
+function maxRestFor(s: Stats): number {
+  return s.lastStretchLength >= MAX_STRETCH ? REST_AFTER_FULL : MAX_REST
+}
+
 function tier(s: Stats): number {
-  if (s.stretchDay >= 1 && s.stretchDay <= 3) return 0
-  if (s.stretchDay === 4) return 1
-  if (s.stretchDay === 0) return 2
-  return 3
+  if (s.stretchDay >= MAX_STRETCH) return 5
+  if (s.stretchDay >= 1) {
+    if (s.stretchDay < IDEAL_MAX_STRETCH) return 0
+    return 1
+  }
+  const minR = minRestFor(s)
+  if (s.consecutiveOff < minR) return 5
+  if (s.consecutiveOff >= PREFERRED_MAX_REST) return 0
+  return 2
+}
+
+interface Candidate {
+  emp: Employee
+  shift: 'morning' | 'afternoon'
+  tierVal: number
 }
 
 export function generateSchedule(input: GenerateInput): GenerateOutput {
@@ -159,136 +211,125 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       }
     }
 
-    const candidatesFor = (
-      shift: 'morning' | 'afternoon',
-      excluded: Set<string>,
-    ): Employee[] => {
-      return input.employees.filter((e) => {
-        if (excluded.has(e.id)) return false
-        if (dailyAssignment.has(e.id)) return false
-        if (!shiftAllowed(e, shift)) return false
-        const s = stats.get(e.id)!
-        if (s.stretchDay >= MAX_STRETCH) return false
-        if (s.stretchDay >= 1) {
-          return s.stretchShift === shift
+    const cands: Candidate[] = []
+    for (const e of input.employees) {
+      if (dailyAssignment.has(e.id)) continue
+      const s = stats.get(e.id)!
+      const t = tier(s)
+      if (t >= 5) continue
+      if (s.stretchDay >= 1) {
+        if (s.stretchShift === 'morning' || s.stretchShift === 'afternoon') {
+          if (shiftAllowed(e, s.stretchShift)) {
+            cands.push({ emp: e, shift: s.stretchShift, tierVal: t })
+          }
         }
-        const required =
-          s.lastStretchLength >= MAX_STRETCH ? REST_AFTER_FULL : REST_AFTER_NORMAL
-        if (s.consecutiveOff < required) return false
-        if (shift === 'morning' && s.lastShift === 'afternoon') return false
-        return true
-      })
+      } else {
+        if (!canSustainStretch(e.id, dISO, input.approvedRequests)) continue
+        if (shiftAllowed(e, 'morning') && s.lastShift !== 'afternoon') {
+          cands.push({ emp: e, shift: 'morning', tierVal: t })
+        }
+        if (shiftAllowed(e, 'afternoon')) {
+          cands.push({ emp: e, shift: 'afternoon', tierVal: t })
+        }
+      }
     }
 
-    const sortByPriority = (a: Employee, b: Employee) => {
-      const sA = stats.get(a.id)!
-      const sB = stats.get(b.id)!
-      const tA = tier(sA)
-      const tB = tier(sB)
-      if (tA !== tB) return tA - tB
+    cands.sort((a, b) => {
+      if (a.tierVal !== b.tierVal) return a.tierVal - b.tierVal
+      const sA = stats.get(a.emp.id)!
+      const sB = stats.get(b.emp.id)!
       return sA.totalShifts - sB.totalShifts
+    })
+
+    const assigned = new Set<string>()
+    let morningCount = 0
+    let afternoonCount = 0
+
+    const place = (empId: string, shift: 'morning' | 'afternoon') => {
+      dailyAssignment.set(empId, shift)
+      assigned.add(empId)
+      if (shift === 'morning') morningCount++
+      else afternoonCount++
     }
 
-    const tryEmergency = (
-      shift: 'morning' | 'afternoon',
-      used: Set<string>,
-    ): Employee | null => {
-      const cands = input.employees.filter((e) => {
-        if (used.has(e.id)) return false
-        if (dailyAssignment.has(e.id)) return false
-        if (!shiftAllowed(e, shift)) return false
-        const s = stats.get(e.id)!
-        if (s.stretchDay >= MAX_STRETCH) return false
-        if (s.stretchDay >= 1 && s.stretchShift !== shift) return false
-        return true
-      })
-      if (cands.length === 0) return null
-      cands.sort(
-        (a, b) => stats.get(a.id)!.totalShifts - stats.get(b.id)!.totalShifts,
-      )
-      return cands[0]
+    for (const c of cands) {
+      if (c.tierVal !== 0) continue
+      if (assigned.has(c.emp.id)) continue
+      const s = stats.get(c.emp.id)!
+      if (s.stretchDay >= 1) {
+        place(c.emp.id, c.shift)
+      } else {
+        const canM = shiftAllowed(c.emp, 'morning') && s.lastShift !== 'afternoon'
+        const canA = shiftAllowed(c.emp, 'afternoon')
+        let pick: 'morning' | 'afternoon' | null = null
+        if (canM && canA) pick = morningCount <= afternoonCount ? 'morning' : 'afternoon'
+        else if (canM) pick = 'morning'
+        else if (canA) pick = 'afternoon'
+        if (pick) place(c.emp.id, pick)
+      }
     }
 
-    const morningSlots = input.morningSlotsPerDay?.[dISO] ?? 1
-    const used = new Set<string>()
-    for (let i = 0; i < morningSlots; i++) {
-      const cands = candidatesFor('morning', used)
-      if (cands.length > 0) {
-        cands.sort(sortByPriority)
-        const chosen = cands[0]
-        dailyAssignment.set(chosen.id, 'morning')
-        used.add(chosen.id)
-      } else if (i === 0) {
-        const fallback = tryEmergency('morning', used)
-        if (fallback) {
-          dailyAssignment.set(fallback.id, 'morning')
-          used.add(fallback.id)
-          violations.push({
-            date: dISO,
-            kind: 'forced-start',
-            employeeId: fallback.id,
-            detail: `Forzado a trabajar sin descanso suficiente el ${dISO} (mañana)`,
-          })
-        } else {
-          violations.push({
-            date: dISO,
-            kind: 'no-morning-coverage',
-            detail: `Sin cobertura de mañana el ${dISO}`,
-          })
+    const targetMorning = input.morningSlotsPerDay?.[dISO] ?? 1
+    const targetAfternoon = 1
+
+    for (const c of cands) {
+      if (c.tierVal === 0) continue
+      if (assigned.has(c.emp.id)) continue
+      if (morningCount >= targetMorning && afternoonCount >= targetAfternoon) break
+      const s = stats.get(c.emp.id)!
+      if (s.stretchDay >= 1) {
+        if (c.shift === 'morning' && morningCount < targetMorning) place(c.emp.id, 'morning')
+        else if (c.shift === 'afternoon' && afternoonCount < targetAfternoon) place(c.emp.id, 'afternoon')
+      } else {
+        if (morningCount < targetMorning && shiftAllowed(c.emp, 'morning') && s.lastShift !== 'afternoon') {
+          place(c.emp.id, 'morning')
+        } else if (afternoonCount < targetAfternoon && shiftAllowed(c.emp, 'afternoon')) {
+          place(c.emp.id, 'afternoon')
         }
-        break
-      } else {
-        break
       }
     }
 
-    const aftCands = candidatesFor('afternoon', used)
-    if (aftCands.length > 0) {
-      aftCands.sort(sortByPriority)
-      dailyAssignment.set(aftCands[0].id, 'afternoon')
-    } else {
-      const fallback = tryEmergency('afternoon', used)
-      if (fallback) {
-        dailyAssignment.set(fallback.id, 'afternoon')
-        violations.push({
-          date: dISO,
-          kind: 'forced-start',
-          employeeId: fallback.id,
-          detail: `Forzado a trabajar sin descanso suficiente el ${dISO} (tarde)`,
-        })
-      } else {
-        violations.push({
-          date: dISO,
-          kind: 'no-afternoon-coverage',
-          detail: `Sin cobertura de tarde el ${dISO}`,
-        })
-      }
+    if (morningCount === 0) {
+      violations.push({
+        date: dISO,
+        kind: 'no-morning-coverage',
+        detail: `Sin cobertura de mañana el ${dISO}`,
+      })
+    }
+    if (afternoonCount === 0) {
+      violations.push({
+        date: dISO,
+        kind: 'no-afternoon-coverage',
+        detail: `Sin cobertura de tarde el ${dISO}`,
+      })
     }
 
     for (const e of input.employees) {
-      const assigned: Shift = dailyAssignment.get(e.id) ?? 'off'
+      const final: Shift = dailyAssignment.get(e.id) ?? 'off'
       entries.push({
         employee_id: e.id,
         date: dISO,
-        shift: assigned,
+        shift: final,
         source: 'auto',
       })
       const s = stats.get(e.id)!
-      if (assigned !== 'off') {
+      const wasApprovedOff = isOff(e.id, dISO, input.approvedRequests)
+
+      if (final !== 'off') {
         if (s.stretchDay === 0) {
           s.stretchDay = 1
-          s.stretchShift = assigned
+          s.stretchShift = final
         } else {
           s.stretchDay += 1
         }
         s.totalShifts += 1
         s.consecutiveOff = 0
-        s.lastShift = assigned
+        s.lastShift = final
         if (weekend) s.weekendOffCurrent = false
       } else {
         if (s.stretchDay > 0) {
           s.lastStretchLength = s.stretchDay
-          if (s.stretchDay < MIN_STRETCH) {
+          if (s.stretchDay < MIN_STRETCH && !wasApprovedOff) {
             violations.push({
               date: dISO,
               kind: 'short-stretch',
@@ -299,7 +340,20 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
           s.stretchDay = 0
           s.stretchShift = 'off'
         }
-        s.consecutiveOff += 1
+        if (wasApprovedOff) {
+          s.consecutiveOff = MIN_REST
+        } else {
+          s.consecutiveOff += 1
+          const myMax = maxRestFor(s)
+          if (s.consecutiveOff > myMax && canSustainStretch(e.id, dISO, input.approvedRequests)) {
+            violations.push({
+              date: dISO,
+              kind: 'over-max-rest',
+              employeeId: e.id,
+              detail: `${e.full_name} acumula ${s.consecutiveOff} días de descanso (máximo ${myMax})`,
+            })
+          }
+        }
         s.lastShift = 'off'
       }
     }
