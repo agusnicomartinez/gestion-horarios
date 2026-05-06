@@ -76,6 +76,7 @@ export interface Violation {
     | 'short-stretch'
     | 'over-max-rest'
     | 'no-weekend-rest'
+    | 'forced-coverage'
   detail: string
   employeeId?: string
 }
@@ -366,19 +367,56 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       }
     }
 
-    if (morningCount === 0) {
-      violations.push({
-        date: dISO,
-        kind: 'no-morning-coverage',
-        detail: `Sin cobertura de mañana el ${dISO}`,
+    const fallbackPick = (needShift: 'morning' | 'afternoon'): string | null => {
+      const eligible = input.employees.filter((e) => {
+        if (dailyAssignment.has(e.id)) return false
+        if (!shiftAllowed(e, needShift)) return false
+        const s = stats.get(e.id)!
+        if (s.stretchDay >= MAX_STRETCH) return false
+        if (s.stretchDay >= 1 && s.stretchShift !== needShift) return false
+        if (s.stretchDay === 0 && needShift === 'morning' && s.lastShift === 'afternoon') return false
+        return true
       })
+      if (eligible.length === 0) return null
+      eligible.sort((a, b) => stats.get(b.id)!.consecutiveOff - stats.get(a.id)!.consecutiveOff)
+      return eligible[0].id
     }
-    if (afternoonCount === 0) {
-      violations.push({
-        date: dISO,
-        kind: 'no-afternoon-coverage',
-        detail: `Sin cobertura de tarde el ${dISO}`,
-      })
+
+    if (morningCount < targetMorning) {
+      const id = fallbackPick('morning')
+      if (id) {
+        place(id, 'morning')
+        violations.push({
+          date: dISO,
+          kind: 'forced-coverage',
+          employeeId: id,
+          detail: `Cobertura de mañana cubierta forzando a un empleado fuera de su descanso ideal el ${dISO}`,
+        })
+      } else {
+        violations.push({
+          date: dISO,
+          kind: 'no-morning-coverage',
+          detail: `Sin cobertura de mañana el ${dISO} (ningún empleado disponible)`,
+        })
+      }
+    }
+    if (afternoonCount < targetAfternoon) {
+      const id = fallbackPick('afternoon')
+      if (id) {
+        place(id, 'afternoon')
+        violations.push({
+          date: dISO,
+          kind: 'forced-coverage',
+          employeeId: id,
+          detail: `Cobertura de tarde cubierta forzando a un empleado fuera de su descanso ideal el ${dISO}`,
+        })
+      } else {
+        violations.push({
+          date: dISO,
+          kind: 'no-afternoon-coverage',
+          detail: `Sin cobertura de tarde el ${dISO} (ningún empleado disponible)`,
+        })
+      }
     }
 
     for (const e of input.employees) {
