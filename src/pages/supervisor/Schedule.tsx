@@ -75,12 +75,14 @@ export default function SupervisorSchedule() {
           created_at: new Date().toISOString(),
         })
       } else {
-        // Preserve cells the supervisor manually edited (or coming from
-        // approved requests). Regeneration only wipes the auto-generated rows.
+        // Preserve cells the supervisor manually edited. Request-sourced
+        // entries are regenerated from the current approval state so that
+        // toggling a request to rejected (or approving a new one) is
+        // reflected on the next regenerate.
         const existing = (await db.scheduleEntries.list()).filter(
           (e) => e.schedule_id === sch!.id,
         )
-        manualEntries = existing.filter((e) => e.source !== 'auto')
+        manualEntries = existing.filter((e) => e.source === 'manual')
         await db.scheduleEntries.removeWhere((e) => e.schedule_id === sch!.id)
         sch = await db.schedules.update(sch.id, { status: 'draft', published_at: null })
       }

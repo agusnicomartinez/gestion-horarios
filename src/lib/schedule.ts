@@ -128,6 +128,26 @@ function isOff(empId: string, dateISO: string, requests: DayRequest[]): boolean 
   )
 }
 
+function approvedOffFor(
+  empId: string,
+  dateISO: string,
+  requests: DayRequest[],
+): DayRequest | null {
+  return (
+    requests.find(
+      (r) =>
+        r.employee_id === empId &&
+        r.status === 'approved' &&
+        dateISO >= r.start_date &&
+        dateISO <= r.end_date,
+    ) ?? null
+  )
+}
+
+function isWorkingShift(shift: Shift): boolean {
+  return shift === 'morning' || shift === 'afternoon'
+}
+
 function canSustainStretch(
   empId: string,
   dateISO: string,
@@ -373,9 +393,20 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       for (const e of input.employees) stats.get(e.id)!.weekendOffCurrent = true
     }
 
+    const dailyAssignmentSource = new Map<string, 'auto' | 'request'>()
     for (const e of input.employees) {
-      if (isOff(e.id, dISO, allOffs)) {
-        dailyAssignment.set(e.id, 'off')
+      const req = approvedOffFor(e.id, dISO, allOffs)
+      if (req) {
+        if (req.id.startsWith('weekend-off-')) {
+          // Synthetic weekend assignment — algorithmic 'libre', not a request.
+          dailyAssignment.set(e.id, 'off')
+          dailyAssignmentSource.set(e.id, 'auto')
+        } else {
+          // Real approved request — preserve the request type so the cell
+          // shows V / F / P, not just L.
+          dailyAssignment.set(e.id, req.type as Shift)
+          dailyAssignmentSource.set(e.id, 'request')
+        }
       }
     }
 
@@ -430,16 +461,17 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
 
     for (const e of input.employees) {
       const final: Shift = dailyAssignment.get(e.id) ?? 'off'
+      const sourceFor = dailyAssignmentSource.get(e.id) ?? 'auto'
       entries.push({
         employee_id: e.id,
         date: dISO,
         shift: final,
-        source: 'auto',
+        source: sourceFor,
       })
       const s = stats.get(e.id)!
       const wasApprovedOff = isOff(e.id, dISO, allOffs)
 
-      if (final !== 'off') {
+      if (isWorkingShift(final)) {
         s.stretchDay = s.stretchDay >= 1 ? s.stretchDay + 1 : 1
         s.totalShifts += 1
         if (final === 'morning') s.totalMorning += 1
