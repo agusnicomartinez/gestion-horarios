@@ -83,7 +83,9 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   vacation_days_per_year: 31,
   personal_days_per_year: 3,
   holiday_days_per_year: 14,
-  rest_days_per_year: 223,
+  // 1783 h/año / 8 h/día ≈ 223 días trabajo → 365 − 223 − 31 vac − 14 festivos
+  // ≈ 97 días libres regulares (~ 8 al mes).
+  rest_days_per_year: 97,
   updated_at: new Date().toISOString(),
 }
 
