@@ -23,11 +23,14 @@ function typeShort(t: RequestType): string {
 
 type ViewMode = 'single' | 'all'
 
+/** Selector value format: 'dept:<id>' for whole department, 'cat:<id>' for one category. */
+type ScopeValue = string
+
 export default function Calendar() {
   const [allEmployees, setAllEmployees] = useState<Employee[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [categories, setCategories] = useState<Category[]>([])
-  const [departmentId, setDepartmentId] = useState<string>('')
+  const [scope, setScope] = useState<ScopeValue>('')
   const [employeeId, setEmployeeId] = useState<string | null>(null)
   const [view, setView] = useState<ViewMode>('single')
   const [year, setYear] = useState(new Date().getFullYear())
@@ -42,15 +45,22 @@ export default function Calendar() {
     const cs = await db.categories.list()
     setDepartments(ds)
     setCategories(cs)
-    if (!departmentId && ds.length > 0) setDepartmentId(ds[0].id)
+    if (!scope && ds.length > 0) setScope(`dept:${ds[0].id}`)
     setRequests(await db.dayRequests.list())
   }
 
   const employees = useMemo(() => {
-    if (!departmentId) return [] as Employee[]
-    const catIds = new Set(categories.filter((c) => c.department_id === departmentId).map((c) => c.id))
+    if (!scope) return [] as Employee[]
+    const [kind, id] = scope.split(':')
+    if (kind === 'cat') {
+      return allEmployees.filter((e) => e.category_id === id)
+    }
+    // dept: include all categories in that department
+    const catIds = new Set(
+      categories.filter((c) => c.department_id === id).map((c) => c.id),
+    )
     return allEmployees.filter((e) => e.category_id && catIds.has(e.category_id))
-  }, [allEmployees, categories, departmentId])
+  }, [allEmployees, categories, scope])
 
   // Reset employeeId when employees set changes (e.g., switched dept)
   useEffect(() => {
@@ -187,11 +197,21 @@ export default function Calendar() {
       <header className="section-head">
         <h1>Calendario anual</h1>
         <div className="actions">
-          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+          <select value={scope} onChange={(e) => setScope(e.target.value)}>
             {departments.length === 0 && <option value="">— sin departamentos —</option>}
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
+            {departments.map((d) => {
+              const deptCats = categories.filter((c) => c.department_id === d.id)
+              return (
+                <optgroup key={d.id} label={d.name}>
+                  <option value={`dept:${d.id}`}>{d.name} (todas)</option>
+                  {deptCats.map((c) => (
+                    <option key={c.id} value={`cat:${c.id}`}>
+                      &nbsp;&nbsp;↳ {c.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )
+            })}
           </select>
           <input
             type="number"
