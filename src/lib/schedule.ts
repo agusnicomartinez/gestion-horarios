@@ -52,7 +52,7 @@ const MAX_STRETCH = 7
 const IDEAL_MAX_STRETCH = 6
 const MIN_REST = 2
 const PREFERRED_MAX_REST = 3
-const MAX_REST = 4
+const MAX_REST = 3
 const REST_AFTER_FULL = 3
 
 export interface GenerateInput {
@@ -306,8 +306,18 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     if (shift === 'morning' && s.lastShift === 'afternoon') return false
     if (s.stretchDay >= 1) return true
     if (s.consecutiveOff < minRestFor(s)) return false
-    // Look-ahead: don't start a stretch that an upcoming approved off would
-    // cut short below MIN_STRETCH (creates short-stretch violations).
+    // Forced (rest at preferred max): must work today even if upcoming
+    // approved off would cut the stretch short — strict rest cap takes
+    // precedence over min-stretch (short-stretch violation is suppressed
+    // when the cut is caused by an approved off).
+    if (s.consecutiveOff >= PREFERRED_MAX_REST) return true
+    // Single-shift specialists (e.g., afternoon-only) bypass canSustain too:
+    // they're the natural cover for their shift, and a short stretch caused
+    // by their assigned weekend off is already suppressed. Without this they
+    // get blocked, the "both" employees fill in and get displaced when the
+    // specialist returns — that creates the actual short stretches.
+    if (e.shift_type !== 'both') return true
+    // Optional fresh start for "both" employees: only if can sustain MIN_STRETCH.
     return canSustainStretch(e.id, dISO, allOffs)
   }
 
@@ -378,26 +388,24 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       })
     }
 
-    // Morning: at least 1, plus any tier-0 forced employees who can do morning
-    // (avoids leaving people in over-rest violation when capacity allows them).
+    // Morning: at least 1, plus any tier-0 forced employees who can still
+    // do morning. Loop is post-condition: pick best, then check if a tier-0
+    // is still pending. This way the first pick (often a continuity mid-stretch
+    // at tier 1) doesn't displace tier-0 forced employees who would otherwise
+    // over-rest.
     const baseMorning = input.morningSlotsPerDay?.[dISO] ?? 1
-    const tier0NeedingMorning = input.employees.filter((e) => {
-      if (dailyAssignment.has(e.id)) return false
-      const s = stats.get(e.id)!
-      if (tier(s) !== 0) return false
-      return isShiftEligible(e, 'morning', dailyAssignment, dISO)
-    }).length
-    const targetMorning = Math.max(baseMorning, tier0NeedingMorning)
-
     let placedMorning = 0
-    for (let i = 0; i < targetMorning; i++) {
+    while (true) {
+      const tier0Pending = input.employees.some((e) => {
+        if (dailyAssignment.has(e.id)) return false
+        if (tier(stats.get(e.id)!) !== 0) return false
+        return isShiftEligible(e, 'morning', dailyAssignment, dISO)
+      })
+      if (placedMorning >= baseMorning && !tier0Pending) break
       const morningId = pickShiftWorker('morning', dailyAssignment, dISO)
-      if (morningId) {
-        dailyAssignment.set(morningId, 'morning')
-        placedMorning++
-      } else {
-        break
-      }
+      if (!morningId) break
+      dailyAssignment.set(morningId, 'morning')
+      placedMorning++
     }
     if (placedMorning === 0) {
       violations.push({

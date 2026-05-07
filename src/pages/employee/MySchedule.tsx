@@ -161,7 +161,7 @@ function labelShift(s: Shift): string {
   return s === 'morning' ? 'Mañana' : s === 'afternoon' ? 'Tarde' : 'Libre'
 }
 function shortShift(s: Shift): string {
-  return s === 'morning' ? 'M' : s === 'afternoon' ? 'T' : '·'
+  return s === 'morning' ? 'M' : s === 'afternoon' ? 'T' : 'L'
 }
 
 function chunkMonth(days: Date[]): (Date | null)[][] {

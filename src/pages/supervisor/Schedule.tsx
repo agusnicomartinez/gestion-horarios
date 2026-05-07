@@ -216,8 +216,9 @@ export default function SupervisorSchedule() {
                           <select
                             value={shift}
                             onChange={(ev) => onCellChange(e.id, dISO, ev.target.value as Shift)}
+                            title={shift === 'off' ? 'Libre' : shift === 'morning' ? 'Mañana' : 'Tarde'}
                           >
-                            <option value="off">—</option>
+                            <option value="off">L</option>
                             <option value="morning">M</option>
                             <option value="afternoon">T</option>
                           </select>
