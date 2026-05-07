@@ -5,15 +5,19 @@ import { eachDayInMonth, fromISO, toISO } from '../../lib/dates'
 import { addDays, format } from 'date-fns'
 
 interface ModalState {
+  employeeId: string
   start: string
   end: string
   type: RequestType
   existingId?: string
 }
 
+type ViewMode = 'single' | 'all'
+
 export default function Calendar() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [employeeId, setEmployeeId] = useState<string | null>(null)
+  const [view, setView] = useState<ViewMode>('single')
   const [year, setYear] = useState(new Date().getFullYear())
   const [requests, setRequests] = useState<DayRequest[]>([])
   const [modal, setModal] = useState<ModalState | null>(null)
@@ -53,23 +57,32 @@ export default function Calendar() {
 
   function onCellClick(dateISO: string) {
     if (!employeeId) return
-    const existing = dayMap.get(dateISO)
-    if (existing) {
-      const req = requests.find((r) => r.id === existing.reqId)
-      if (!req) return
+    onCellClickForEmployee(employeeId, dateISO)
+  }
+
+  function onCellClickForEmployee(empId: string, dateISO: string) {
+    const req = requests.find(
+      (r) =>
+        r.employee_id === empId &&
+        r.status === 'approved' &&
+        dateISO >= r.start_date &&
+        dateISO <= r.end_date,
+    )
+    if (req) {
       setModal({
+        employeeId: empId,
         start: req.start_date,
         end: req.end_date,
         type: req.type,
         existingId: req.id,
       })
     } else {
-      setModal({ start: dateISO, end: dateISO, type: 'vacation' })
+      setModal({ employeeId: empId, start: dateISO, end: dateISO, type: 'vacation' })
     }
   }
 
   async function onSave() {
-    if (!modal || !employeeId) return
+    if (!modal) return
     if (modal.end < modal.start) {
       alert('La fecha "Hasta" debe ser igual o posterior a "Desde".')
       return
@@ -86,7 +99,7 @@ export default function Calendar() {
       } else {
         const overlaps = requests.filter(
           (r) =>
-            r.employee_id === employeeId &&
+            r.employee_id === modal.employeeId &&
             r.status === 'approved' &&
             r.start_date <= modal.end &&
             r.end_date >= modal.start,
@@ -102,7 +115,7 @@ export default function Calendar() {
           for (const c of overlaps) await db.dayRequests.remove(c.id)
         }
         await db.dayRequests.insert({
-          employee_id: employeeId,
+          employee_id: modal.employeeId,
           type: modal.type,
           start_date: modal.start,
           end_date: modal.end,
@@ -133,7 +146,7 @@ export default function Calendar() {
   function onAddRange() {
     if (!employeeId) return
     const today = toISO(new Date(year, 0, 1))
-    setModal({ start: today, end: today, type: 'vacation' })
+    setModal({ employeeId, start: today, end: today, type: 'vacation' })
   }
 
   return (
@@ -148,25 +161,42 @@ export default function Calendar() {
             value={year}
             onChange={(e) => setYear(+e.target.value)}
           />
-          {employeeId && <button onClick={onAddRange}>+ Rango</button>}
+          <div className="toggle">
+            <button
+              className={view === 'single' ? 'active' : ''}
+              onClick={() => setView('single')}
+            >
+              Por empleado
+            </button>
+            <button
+              className={view === 'all' ? 'active' : ''}
+              onClick={() => setView('all')}
+            >
+              Ver todos
+            </button>
+          </div>
+          {view === 'single' && employeeId && <button onClick={onAddRange}>+ Rango</button>}
         </div>
       </header>
 
-      <div className="employee-picker">
-        {employees.map((e) => (
-          <button
-            key={e.id}
-            onClick={() => setEmployeeId(e.id)}
-            className={`pick ${e.id === employeeId ? 'active' : ''}`}
-          >
-            {e.full_name}
-          </button>
-        ))}
-      </div>
+      {view === 'single' && (
+        <div className="employee-picker">
+          {employees.map((e) => (
+            <button
+              key={e.id}
+              onClick={() => setEmployeeId(e.id)}
+              className={`pick ${e.id === employeeId ? 'active' : ''}`}
+            >
+              {e.full_name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <p className="muted small">
-        Tocá un día para abrir el editor (un rango de 1 día por defecto). Para
-        cargar varios días seguidos, ajustá la fecha "Hasta" en el modal.
+        {view === 'single'
+          ? 'Tocá un día para abrir el editor (un rango de 1 día por defecto). Para cargar varios días seguidos, ajustá la fecha "Hasta" en el modal.'
+          : 'Vista global de todos los empleados. Tocá una celda para editar la solicitud del empleado correspondiente.'}
       </p>
 
       <div className="legend">
@@ -175,7 +205,7 @@ export default function Calendar() {
         <span className="legend-chip cell-holiday">F</span> Festivo
       </div>
 
-      {employeeId && (
+      {view === 'single' && employeeId && (
         <div className="year-grid">
           {Array.from({ length: 12 }, (_, m) => (
             <MiniCalendar
@@ -184,6 +214,21 @@ export default function Calendar() {
               month={m}
               dayMap={dayMap}
               onCellClick={onCellClick}
+            />
+          ))}
+        </div>
+      )}
+
+      {view === 'all' && (
+        <div className="global-year">
+          {Array.from({ length: 12 }, (_, m) => (
+            <GlobalMonth
+              key={m}
+              year={year}
+              month={m}
+              employees={employees}
+              requests={requests}
+              onCellClick={onCellClickForEmployee}
             />
           ))}
         </div>
@@ -237,6 +282,77 @@ export default function Calendar() {
         </div>
       )}
     </section>
+  )
+}
+
+function GlobalMonth({
+  year,
+  month,
+  employees,
+  requests,
+  onCellClick,
+}: {
+  year: number
+  month: number
+  employees: Employee[]
+  requests: DayRequest[]
+  onCellClick: (empId: string, dateISO: string) => void
+}) {
+  const days = eachDayInMonth(new Date(year, month, 1))
+  const byEmpDay = useMemo(() => {
+    const m = new Map<string, RequestType>()
+    for (const r of requests) {
+      if (r.status !== 'approved') continue
+      let cur = fromISO(r.start_date)
+      const end = fromISO(r.end_date)
+      while (cur <= end) {
+        m.set(`${r.employee_id}|${toISO(cur)}`, r.type)
+        cur = addDays(cur, 1)
+      }
+    }
+    return m
+  }, [requests])
+
+  return (
+    <div className="global-month">
+      <h3>{format(new Date(year, month, 1), 'MMMM yyyy')}</h3>
+      <div className="global-table-wrap">
+        <table className="global-table">
+          <thead>
+            <tr>
+              <th className="sticky-col">Empleado</th>
+              {days.map((d) => {
+                const wk = d.getDay() === 0 || d.getDay() === 6
+                return (
+                  <th key={toISO(d)} className={wk ? 'weekend' : ''}>
+                    <div>{d.getDate()}</div>
+                    <div className="dow">{['D', 'L', 'M', 'X', 'J', 'V', 'S'][d.getDay()]}</div>
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {employees.map((e) => (
+              <tr key={e.id}>
+                <td className="sticky-col">{e.full_name}</td>
+                {days.map((d) => {
+                  const dISO = toISO(d)
+                  const t = byEmpDay.get(`${e.id}|${dISO}`)
+                  const cls = t ? `cell cell-${t}` : 'cell'
+                  const label = t === 'vacation' ? 'V' : t === 'personal' ? 'P' : t === 'holiday' ? 'F' : ''
+                  return (
+                    <td key={dISO} className={cls} onClick={() => onCellClick(e.id, dISO)}>
+                      {label}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 
