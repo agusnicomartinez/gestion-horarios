@@ -172,6 +172,11 @@ h2 { font-size: 1.15rem; margin: 0 0 0.5rem; }
   object-fit: contain;
   border-radius: 6px;
 }
+/* Logo file is black line art on transparent background. Repaint to white
+   in dark mode so it doesn't disappear against the dark topbar. */
+@media (prefers-color-scheme: dark) {
+  .topbar-logo { filter: brightness(0) invert(1); }
+}
 .topbar-user { display: flex; gap: 0.5rem; align-items: center; }
 .topbar-user span { color: var(--text-muted); font-size: 0.9rem; }
 
