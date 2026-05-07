@@ -4,14 +4,19 @@ import type { DayRequest, Employee, RequestType } from '../../types/database'
 import { eachDayInMonth, fromISO, toISO } from '../../lib/dates'
 import { addDays, format } from 'date-fns'
 
-type CellType = RequestType | null
-const CYCLE: CellType[] = [null, 'vacation', 'personal', 'holiday']
+interface ModalState {
+  start: string
+  end: string
+  type: RequestType
+  existingId?: string
+}
 
 export default function Calendar() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [employeeId, setEmployeeId] = useState<string | null>(null)
   const [year, setYear] = useState(new Date().getFullYear())
   const [requests, setRequests] = useState<DayRequest[]>([])
+  const [modal, setModal] = useState<ModalState | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function reload() {
@@ -46,52 +51,105 @@ export default function Calendar() {
     return m
   }, [requests, employeeId])
 
-  async function onCellClick(dateISO: string) {
-    if (!employeeId || busy) return
+  function onCellClick(dateISO: string) {
+    if (!employeeId) return
     const existing = dayMap.get(dateISO)
+    if (existing) {
+      const req = requests.find((r) => r.id === existing.reqId)
+      if (!req) return
+      setModal({
+        start: req.start_date,
+        end: req.end_date,
+        type: req.type,
+        existingId: req.id,
+      })
+    } else {
+      setModal({ start: dateISO, end: dateISO, type: 'vacation' })
+    }
+  }
+
+  async function onSave() {
+    if (!modal || !employeeId) return
+    if (modal.end < modal.start) {
+      alert('La fecha "Hasta" debe ser igual o posterior a "Desde".')
+      return
+    }
     setBusy(true)
     try {
-      if (existing) {
-        const req = requests.find((r) => r.id === existing.reqId)
-        if (!req) return
-        if (req.start_date !== req.end_date) {
-          alert('Esta fecha es parte de un rango. Editá la solicitud completa desde el panel de Solicitudes.')
-          return
-        }
-        const idx = CYCLE.indexOf(existing.type)
-        const next = CYCLE[(idx + 1) % CYCLE.length]
-        if (next === null) {
-          await db.dayRequests.remove(req.id)
-        } else {
-          await db.dayRequests.update(req.id, { type: next })
-        }
+      if (modal.existingId) {
+        await db.dayRequests.update(modal.existingId, {
+          type: modal.type,
+          start_date: modal.start,
+          end_date: modal.end,
+          target_month: modal.start.slice(0, 7) + '-01',
+        })
       } else {
+        const overlaps = requests.filter(
+          (r) =>
+            r.employee_id === employeeId &&
+            r.status === 'approved' &&
+            r.start_date <= modal.end &&
+            r.end_date >= modal.start,
+        )
+        if (overlaps.length > 0) {
+          const ok = confirm(
+            `Hay ${overlaps.length} solicitud(es) que se solapan con este rango. ¿Reemplazarlas?`,
+          )
+          if (!ok) {
+            setBusy(false)
+            return
+          }
+          for (const c of overlaps) await db.dayRequests.remove(c.id)
+        }
         await db.dayRequests.insert({
           employee_id: employeeId,
-          type: 'vacation',
-          start_date: dateISO,
-          end_date: dateISO,
+          type: modal.type,
+          start_date: modal.start,
+          end_date: modal.end,
           status: 'approved',
-          target_month: dateISO.slice(0, 7) + '-01',
+          target_month: modal.start.slice(0, 7) + '-01',
         })
       }
+      setModal(null)
       await reload()
     } finally {
       setBusy(false)
     }
   }
 
+  async function onDelete() {
+    if (!modal?.existingId) return
+    if (!confirm('Borrar esta solicitud?')) return
+    setBusy(true)
+    try {
+      await db.dayRequests.remove(modal.existingId)
+      setModal(null)
+      await reload()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function onAddRange() {
+    if (!employeeId) return
+    const today = toISO(new Date(year, 0, 1))
+    setModal({ start: today, end: today, type: 'vacation' })
+  }
+
   return (
     <section>
       <header className="section-head">
         <h1>Calendario anual</h1>
-        <input
-          type="number"
-          min={2024}
-          max={2030}
-          value={year}
-          onChange={(e) => setYear(+e.target.value)}
-        />
+        <div className="actions">
+          <input
+            type="number"
+            min={2024}
+            max={2030}
+            value={year}
+            onChange={(e) => setYear(+e.target.value)}
+          />
+          {employeeId && <button onClick={onAddRange}>+ Rango</button>}
+        </div>
       </header>
 
       <div className="employee-picker">
@@ -107,9 +165,8 @@ export default function Calendar() {
       </div>
 
       <p className="muted small">
-        Click en un día para alternar Vacaciones → Personal → Festivo → vacío.
-        Las marcas se guardan como solicitudes aprobadas y el algoritmo las
-        respeta cuando generás el cronograma.
+        Tocá un día para abrir el editor (un rango de 1 día por defecto). Para
+        cargar varios días seguidos, ajustá la fecha "Hasta" en el modal.
       </p>
 
       <div className="legend">
@@ -129,6 +186,54 @@ export default function Calendar() {
               onCellClick={onCellClick}
             />
           ))}
+        </div>
+      )}
+
+      {modal && (
+        <div className="modal-backdrop" onClick={() => !busy && setModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{modal.existingId ? 'Editar solicitud' : 'Nueva solicitud'}</h2>
+            <label>
+              Tipo
+              <select
+                value={modal.type}
+                onChange={(e) => setModal({ ...modal, type: e.target.value as RequestType })}
+              >
+                <option value="vacation">Vacaciones</option>
+                <option value="personal">Personal</option>
+                <option value="holiday">Festivo</option>
+              </select>
+            </label>
+            <label>
+              Desde
+              <input
+                type="date"
+                value={modal.start}
+                onChange={(e) => setModal({ ...modal, start: e.target.value })}
+              />
+            </label>
+            <label>
+              Hasta
+              <input
+                type="date"
+                value={modal.end}
+                onChange={(e) => setModal({ ...modal, end: e.target.value })}
+              />
+            </label>
+            <div className="actions">
+              {modal.existingId && (
+                <button className="link danger" onClick={onDelete} disabled={busy}>
+                  Borrar
+                </button>
+              )}
+              <button className="link" onClick={() => setModal(null)} disabled={busy}>
+                Cancelar
+              </button>
+              <button onClick={onSave} disabled={busy}>
+                {busy ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
