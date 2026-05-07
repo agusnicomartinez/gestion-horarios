@@ -16,6 +16,17 @@ import type {
 } from '../../types/database'
 import { format } from 'date-fns'
 
+function shiftTitle(s: Shift): string {
+  switch (s) {
+    case 'morning': return 'Mañana'
+    case 'afternoon': return 'Tarde'
+    case 'vacation': return 'Vacaciones'
+    case 'holiday': return 'Festivo'
+    case 'personal': return 'Personal'
+    default: return 'Libre'
+  }
+}
+
 export default function SupervisorSchedule() {
   const [targetMonth, setTargetMonth] = useState<string>(monthKey(nextMonth(new Date())))
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -56,6 +67,7 @@ export default function SupervisorSchedule() {
     setViolations([])
     try {
       let sch = schedule
+      let manualEntries: ScheduleEntry[] = []
       if (!sch) {
         sch = await db.schedules.insert({
           month: targetMonth,
@@ -63,6 +75,12 @@ export default function SupervisorSchedule() {
           created_at: new Date().toISOString(),
         })
       } else {
+        // Preserve cells the supervisor manually edited (or coming from
+        // approved requests). Regeneration only wipes the auto-generated rows.
+        const existing = (await db.scheduleEntries.list()).filter(
+          (e) => e.schedule_id === sch!.id,
+        )
+        manualEntries = existing.filter((e) => e.source !== 'auto')
         await db.scheduleEntries.removeWhere((e) => e.schedule_id === sch!.id)
         sch = await db.schedules.update(sch.id, { status: 'draft', published_at: null })
       }
@@ -88,8 +106,19 @@ export default function SupervisorSchedule() {
         restDaysPerYear: settings.rest_days_per_year,
       })
 
+      // Overwrite auto picks with the preserved manual cells (if any).
+      const manualMap = new Map<string, ScheduleEntry>()
+      for (const m of manualEntries) {
+        manualMap.set(`${m.employee_id}|${m.date}`, m)
+      }
+      const finalEntries = result.entries.map((e) => {
+        const m = manualMap.get(`${e.employee_id}|${e.date}`)
+        if (m) return { ...e, shift: m.shift, source: m.source }
+        return e
+      })
+
       await db.scheduleEntries.insertMany(
-        result.entries.map((e) => ({ ...e, schedule_id: sch!.id })),
+        finalEntries.map((e) => ({ ...e, schedule_id: sch!.id })),
       )
       setViolations(result.violations)
       await reload()
@@ -218,11 +247,14 @@ export default function SupervisorSchedule() {
                           <select
                             value={shift}
                             onChange={(ev) => onCellChange(e.id, dISO, ev.target.value as Shift)}
-                            title={shift === 'off' ? 'Libre' : shift === 'morning' ? 'Mañana' : 'Tarde'}
+                            title={shiftTitle(shift)}
                           >
                             <option value="off">L</option>
                             <option value="morning">M</option>
                             <option value="afternoon">T</option>
+                            <option value="vacation">V</option>
+                            <option value="holiday">F</option>
+                            <option value="personal">P</option>
                           </select>
                         </td>
                       )

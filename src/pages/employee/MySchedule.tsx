@@ -158,10 +158,24 @@ export default function MySchedule() {
 }
 
 function labelShift(s: Shift): string {
-  return s === 'morning' ? 'Mañana' : s === 'afternoon' ? 'Tarde' : 'Libre'
+  switch (s) {
+    case 'morning': return 'Mañana'
+    case 'afternoon': return 'Tarde'
+    case 'vacation': return 'Vacaciones'
+    case 'holiday': return 'Festivo'
+    case 'personal': return 'Personal'
+    default: return 'Libre'
+  }
 }
 function shortShift(s: Shift): string {
-  return s === 'morning' ? 'M' : s === 'afternoon' ? 'T' : 'L'
+  switch (s) {
+    case 'morning': return 'M'
+    case 'afternoon': return 'T'
+    case 'vacation': return 'V'
+    case 'holiday': return 'F'
+    case 'personal': return 'P'
+    default: return 'L'
+  }
 }
 
 function chunkMonth(days: Date[]): (Date | null)[][] {

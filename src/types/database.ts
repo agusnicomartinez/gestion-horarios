@@ -1,7 +1,7 @@
 export type ShiftType = 'morning' | 'afternoon' | 'both'
 export type RequestType = 'vacation' | 'personal' | 'holiday'
 export type RequestStatus = 'pending' | 'approved' | 'rejected'
-export type Shift = 'morning' | 'afternoon' | 'off'
+export type Shift = 'morning' | 'afternoon' | 'off' | 'vacation' | 'holiday' | 'personal'
 export type ScheduleStatus = 'draft' | 'published'
 export type EntrySource = 'auto' | 'manual' | 'request'
 

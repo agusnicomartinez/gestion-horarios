@@ -533,7 +533,11 @@ export function carryOverFromEntries(
   const grouped: Record<string, Shift[]> = {}
   for (const e of filtered) {
     if (!grouped[e.employee_id]) grouped[e.employee_id] = []
-    grouped[e.employee_id].push(e.shift)
+    // Vacation/holiday/personal cells count as 'off' for stretch / rest
+    // counting purposes so they break stretches correctly.
+    const normalised: Shift =
+      e.shift === 'morning' || e.shift === 'afternoon' ? e.shift : 'off'
+    grouped[e.employee_id].push(normalised)
   }
   return grouped
 }
