@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import logoUrl from '../assets/logo.png'
 import { useSession, notifySessionChange } from '../hooks/useSession'
 import { clearSession } from '../lib/session'
 
@@ -37,7 +38,10 @@ export default function Layout() {
   return (
     <div className="layout">
       <header className="topbar">
-        <div className="topbar-title">Gestión de Horarios</div>
+        <div className="topbar-title">
+          <img src={logoUrl} alt="" className="topbar-logo" />
+          <span>Gestión de Horarios</span>
+        </div>
         <div className="topbar-user">
           <span>{session.fullName}</span>
           <button className="link" onClick={logout}>Salir</button>

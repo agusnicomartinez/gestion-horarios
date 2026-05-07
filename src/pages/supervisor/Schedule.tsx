@@ -22,16 +22,22 @@ function shiftTitle(s: Shift): string {
   switch (s) {
     case 'morning': return 'Mañana'
     case 'afternoon': return 'Tarde'
+    case 'night': return 'Noche'
+    case 'partido': return 'Partido'
     case 'vacation': return 'Vacaciones'
     case 'holiday': return 'Festivo'
-    case 'personal': return 'Personal'
+    case 'personal': return 'Día personal'
     case 'sick': return 'Baja médica'
     default: return 'Libre'
   }
 }
 
-function shiftAllowedFor(emp: Employee, shift: 'morning' | 'afternoon'): boolean {
-  if (emp.shift_type === 'both') return true
+function shiftAllowedFor(
+  emp: Employee,
+  shift: 'morning' | 'afternoon' | 'night' | 'partido',
+): boolean {
+  if (emp.shift_type === 'all') return true
+  if (emp.shift_type === 'both') return shift === 'morning' || shift === 'afternoon'
   return emp.shift_type === shift
 }
 
@@ -119,33 +125,47 @@ export default function SupervisorSchedule() {
 
       const settings = await db.settings.get()
       // Match any approved request whose date range overlaps the schedule
-      // month. Lets supervisor-loaded items (annual calendar) and multi-month
-      // vacations apply to every month they touch. Restricted to the current
-      // department's employees only.
+      // month, restricted to the current department's employees.
       const monthStart = targetMonth
       const monthEnd = toISO(new Date(fromISO(targetMonth).getFullYear(), fromISO(targetMonth).getMonth() + 1, 0))
       const empIds = new Set(employees.map((e) => e.id))
-      const result = generateSchedule({
-        monthISO: targetMonth,
-        employees,
-        approvedRequests: requests.filter(
-          (r) =>
-            empIds.has(r.employee_id) &&
-            r.status === 'approved' &&
-            r.start_date <= monthEnd &&
-            r.end_date >= monthStart,
-        ),
-        holidays,
-        carryOver: carryOverFromEntries(prevEntries, targetMonth),
-        restDaysPerYear: settings.rest_days_per_year,
-      })
+      const allApproved = requests.filter(
+        (r) =>
+          empIds.has(r.employee_id) &&
+          r.status === 'approved' &&
+          r.start_date <= monthEnd &&
+          r.end_date >= monthStart,
+      )
+
+      // Run the generator once per category so each one uses its own
+      // coverage config (M/T/N/P). Merge the resulting entries.
+      const catsInDept = categories.filter((c) => c.department_id === departmentId)
+      const generatedEntries: Omit<ScheduleEntry, 'id' | 'schedule_id'>[] = []
+      const allViolations: Violation[] = []
+      for (const cat of catsInDept) {
+        const catEmployees = employees.filter((e) => e.category_id === cat.id)
+        if (catEmployees.length === 0) continue
+        const catEmpIds = new Set(catEmployees.map((e) => e.id))
+        const catApproved = allApproved.filter((r) => catEmpIds.has(r.employee_id))
+        const result = generateSchedule({
+          monthISO: targetMonth,
+          employees: catEmployees,
+          approvedRequests: catApproved,
+          holidays,
+          carryOver: carryOverFromEntries(prevEntries, targetMonth),
+          restDaysPerYear: settings.rest_days_per_year,
+          coverage: cat.coverage,
+        })
+        generatedEntries.push(...result.entries)
+        allViolations.push(...result.violations)
+      }
 
       // Overwrite auto picks with the preserved manual cells (if any).
       const manualMap = new Map<string, ScheduleEntry>()
       for (const m of manualEntries) {
         manualMap.set(`${m.employee_id}|${m.date}`, m)
       }
-      const finalEntries = result.entries.map((e) => {
+      const finalEntries = generatedEntries.map((e) => {
         const m = manualMap.get(`${e.employee_id}|${e.date}`)
         if (m) return { ...e, shift: m.shift, source: m.source }
         return e
@@ -154,7 +174,7 @@ export default function SupervisorSchedule() {
       await db.scheduleEntries.insertMany(
         finalEntries.map((e) => ({ ...e, schedule_id: sch!.id })),
       )
-      setViolations(result.violations)
+      setViolations(allViolations)
       await reload()
     } catch (err) {
       console.error('Generate failed:', err)
@@ -217,7 +237,10 @@ export default function SupervisorSchedule() {
     // no other coverage that day for the same shift.
     if (
       shift === 'sick' &&
-      (previousShift === 'morning' || previousShift === 'afternoon')
+      (previousShift === 'morning' ||
+        previousShift === 'afternoon' ||
+        previousShift === 'night' ||
+        previousShift === 'partido')
     ) {
       const sameShiftOthers = entries.filter(
         (e) => e.date === date && e.employee_id !== employeeId && e.shift === previousShift,
@@ -252,11 +275,11 @@ export default function SupervisorSchedule() {
             })
           }
           alert(
-            `Turno de ${previousShift === 'morning' ? 'mañana' : 'tarde'} cubierto por ${replacement.full_name}`,
+            `Turno de ${shiftTitle(previousShift).toLowerCase()} cubierto por ${replacement.full_name}`,
           )
         } else {
           alert(
-            `Sin reemplazo disponible para el turno de ${previousShift === 'morning' ? 'mañana' : 'tarde'} del ${date} — asignalo a mano.`,
+            `Sin reemplazo disponible para el turno de ${shiftTitle(previousShift).toLowerCase()} del ${date} — asignalo a mano.`,
           )
         }
       }
@@ -376,9 +399,11 @@ export default function SupervisorSchedule() {
                             <option value="off">L</option>
                             <option value="morning">M</option>
                             <option value="afternoon">T</option>
+                            <option value="night">N</option>
+                            <option value="partido">P</option>
                             <option value="vacation">V</option>
                             <option value="holiday">F</option>
-                            <option value="personal">P</option>
+                            <option value="personal">DP</option>
                             <option value="sick">B</option>
                           </select>
                         </td>

@@ -161,9 +161,11 @@ function labelShift(s: Shift): string {
   switch (s) {
     case 'morning': return 'Mañana'
     case 'afternoon': return 'Tarde'
+    case 'night': return 'Noche'
+    case 'partido': return 'Partido'
     case 'vacation': return 'Vacaciones'
     case 'holiday': return 'Festivo'
-    case 'personal': return 'Personal'
+    case 'personal': return 'Día personal'
     case 'sick': return 'Baja médica'
     default: return 'Libre'
   }
@@ -172,9 +174,11 @@ function shortShift(s: Shift): string {
   switch (s) {
     case 'morning': return 'M'
     case 'afternoon': return 'T'
+    case 'night': return 'N'
+    case 'partido': return 'P'
     case 'vacation': return 'V'
     case 'holiday': return 'F'
-    case 'personal': return 'P'
+    case 'personal': return 'DP'
     case 'sick': return 'B'
     default: return 'L'
   }

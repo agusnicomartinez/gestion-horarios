@@ -102,7 +102,14 @@ export default function Employees() {
 }
 
 function labelShift(s: ShiftType): string {
-  return s === 'morning' ? 'mañana' : s === 'afternoon' ? 'tarde' : 'mañana y tarde'
+  switch (s) {
+    case 'morning': return 'mañana'
+    case 'afternoon': return 'tarde'
+    case 'both': return 'mañana y tarde'
+    case 'night': return 'noche'
+    case 'partido': return 'partido'
+    case 'all': return 'todos'
+  }
 }
 
 function EmployeeForm({
@@ -193,9 +200,12 @@ function EmployeeForm({
       <label>
         Tipo de turno
         <select value={shiftType} onChange={(e) => setShiftType(e.target.value as ShiftType)}>
+          <option value="all">Todos los turnos</option>
           <option value="both">Mañana y tarde</option>
           <option value="morning">Solo mañana</option>
           <option value="afternoon">Solo tarde</option>
+          <option value="night">Solo noche</option>
+          <option value="partido">Solo partido</option>
         </select>
       </label>
       <label className="check">

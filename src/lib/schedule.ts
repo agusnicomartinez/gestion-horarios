@@ -65,6 +65,12 @@ export interface GenerateInput {
   carryOver?: Record<string, Shift[]>
   /** Total días libres regulares al año por empleado (presupuesto). */
   restDaysPerYear?: number
+  /**
+   * Daily minimum coverage per shift. Defaults to {1, 1, 0, 0}.
+   * Morning grows beyond its minimum to absorb tier-0 forced employees
+   * (per spec); the others are strict.
+   */
+  coverage?: { morning: number; afternoon: number; night: number; partido: number }
 }
 
 export interface GenerateOutput {
@@ -113,10 +119,45 @@ function makeInitialStats(): Stats {
 
 function shiftAllowed(emp: Employee, shift: Shift): boolean {
   if (shift === 'off') return true
-  if (emp.shift_type === 'both') return true
+  if (emp.shift_type === 'all') return true
+  if (emp.shift_type === 'both') return shift === 'morning' || shift === 'afternoon'
   if (emp.shift_type === 'morning') return shift === 'morning'
   if (emp.shift_type === 'afternoon') return shift === 'afternoon'
+  if (emp.shift_type === 'night') return shift === 'night'
+  if (emp.shift_type === 'partido') return shift === 'partido'
   return false
+}
+
+/**
+ * Default working hours per shift used to enforce the 12-hour rest rule.
+ * `endsNextDay` means the shift's end time falls on the following calendar
+ * day (e.g. night shift 23:00 → 7:00 next day).
+ */
+const SHIFT_HOURS: Record<
+  'morning' | 'afternoon' | 'night' | 'partido',
+  { start: number; end: number; endsNextDay: boolean }
+> = {
+  morning: { start: 7, end: 15, endsNextDay: false },
+  afternoon: { start: 15, end: 23, endsNextDay: false },
+  night: { start: 23, end: 7, endsNextDay: true },
+  partido: { start: 9, end: 21, endsNextDay: false },
+}
+
+function isWorkShift(s: Shift): s is 'morning' | 'afternoon' | 'night' | 'partido' {
+  return s === 'morning' || s === 'afternoon' || s === 'night' || s === 'partido'
+}
+
+/** Can an employee whose previous day's shift was `prev` start `next` today? */
+function canTransition(prev: Shift, next: Shift): boolean {
+  if (!isWorkShift(prev) || !isWorkShift(next)) return true
+  const p = SHIFT_HOURS[prev]
+  const n = SHIFT_HOURS[next]
+  // Treat prev as occupying day D. If endsNextDay, prev finishes at hour
+  // 24 + p.end. Otherwise just p.end. Next shift starts on day D+1 at
+  // 24 + n.start. Gap must be ≥ 12 h.
+  const prevEndAbs = (p.endsNextDay ? 24 : 0) + p.end
+  const nextStartAbs = 24 + n.start
+  return nextStartAbs - prevEndAbs >= 12
 }
 
 function isOff(empId: string, dateISO: string, requests: DayRequest[]): boolean {
@@ -146,7 +187,12 @@ function approvedOffFor(
 }
 
 function isWorkingShift(shift: Shift): boolean {
-  return shift === 'morning' || shift === 'afternoon'
+  return (
+    shift === 'morning' ||
+    shift === 'afternoon' ||
+    shift === 'night' ||
+    shift === 'partido'
+  )
 }
 
 function canSustainStretch(
@@ -325,7 +371,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
 
   const isShiftEligible = (
     e: Employee,
-    shift: 'morning' | 'afternoon',
+    shift: 'morning' | 'afternoon' | 'night' | 'partido',
     dailyAssignment: Map<string, Shift>,
     dISO: string,
   ): boolean => {
@@ -338,7 +384,8 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     if (s.stretchDay >= MAX_STRETCH_AFTER_FULL && s.lastStretchLength >= MAX_STRETCH) {
       return false
     }
-    if (shift === 'morning' && s.lastShift === 'afternoon') return false
+    // 12-hour rest rule between consecutive working days.
+    if (!canTransition(s.lastShift, shift)) return false
     if (s.stretchDay >= 1) return true
     if (s.consecutiveOff < minRestFor(s)) return false
     // Forced (rest at preferred max): must work today even if upcoming
@@ -356,28 +403,26 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     return canSustainStretch(e.id, dISO, allOffs)
   }
 
-  const score = (e: Employee, shift: 'morning' | 'afternoon'): number[] => {
+  const score = (
+    e: Employee,
+    shift: 'morning' | 'afternoon' | 'night' | 'partido',
+  ): number[] => {
     const s = stats.get(e.id)!
     const t = tier(s)
     const isSpecialist = e.shift_type === shift ? 0 : 1
     const continuity = s.lastShift === shift ? 0 : 1
-    // When forced to transition (continuity=1, e.g., a "both" employee covers
-    // afternoon while Jordi rests), prefer the candidate whose existing stretch
-    // is longest. That employee's stretch already has decent length, so the
-    // transition won't truncate it below MIN_STRETCH.
     const transitionPick = continuity === 1 ? -s.stretchDay : 0
-    const myShiftCount = shift === 'morning' ? s.totalMorning : s.totalAfternoon
-    // Specialist beats everything (Jordi covers afternoon when eligible).
-    // Continuity next (no shift change preferred). Then transitionPick: if
-    // a transition is unavoidable, prefer the candidate whose existing
-    // stretch is longest — their combined stretch will still meet MIN_STRETCH,
-    // whereas a fresh employee transitioning would start a stretch that
-    // gets cut short the moment the specialist returns. Tier comes after.
+    const myShiftCount =
+      shift === 'morning'
+        ? s.totalMorning
+        : shift === 'afternoon'
+          ? s.totalAfternoon
+          : 0
     return [isSpecialist, continuity, transitionPick, t, myShiftCount, s.totalShifts]
   }
 
   const pickShiftWorker = (
-    shift: 'morning' | 'afternoon',
+    shift: 'morning' | 'afternoon' | 'night' | 'partido',
     dailyAssignment: Map<string, Shift>,
     dISO: string,
   ): string | null => {
@@ -422,16 +467,31 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       }
     }
 
-    // Afternoon: strict 1 worker (per user spec).
-    const afternoonId = pickShiftWorker('afternoon', dailyAssignment, dISO)
-    if (afternoonId) {
-      dailyAssignment.set(afternoonId, 'afternoon')
-    } else {
-      violations.push({
-        date: dISO,
-        kind: 'no-afternoon-coverage',
-        detail: `Sin cobertura de tarde el ${dISO}`,
-      })
+    const cov = input.coverage ?? { morning: 1, afternoon: 1, night: 0, partido: 0 }
+
+    // Strict-count shifts: afternoon, night, partido. Pick exactly N workers.
+    const strictPicks: { shift: 'afternoon' | 'night' | 'partido'; count: number }[] = [
+      { shift: 'afternoon', count: cov.afternoon },
+      { shift: 'night', count: cov.night },
+      { shift: 'partido', count: cov.partido },
+    ]
+    for (const { shift, count } of strictPicks) {
+      if (count <= 0) continue
+      let placed = 0
+      for (let i = 0; i < count; i++) {
+        const id = pickShiftWorker(shift, dailyAssignment, dISO)
+        if (!id) break
+        dailyAssignment.set(id, shift)
+        placed++
+      }
+      if (placed < count) {
+        const labelMap = { afternoon: 'tarde', night: 'noche', partido: 'partido' } as const
+        violations.push({
+          date: dISO,
+          kind: shift === 'afternoon' ? 'no-afternoon-coverage' : 'no-morning-coverage',
+          detail: `Cobertura insuficiente de ${labelMap[shift]} el ${dISO} (${placed}/${count})`,
+        })
+      }
     }
 
     // Morning: at least 1, plus any employee who *should* work today but
@@ -442,7 +502,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     //   - tier 0 forced fresh (rest at preferred max)
     //   - tier 1 mid-stretch (would otherwise be dropped from slot and
     //     end up resting more than the cap before being eligible again)
-    const baseMorning = input.morningSlotsPerDay?.[dISO] ?? 1
+    const baseMorning = input.morningSlotsPerDay?.[dISO] ?? cov.morning
     let placedMorning = 0
     while (true) {
       const pending = input.employees.some((e) => {
@@ -487,7 +547,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
         s.stretchDay = s.stretchDay >= 1 ? s.stretchDay + 1 : 1
         s.totalShifts += 1
         if (final === 'morning') s.totalMorning += 1
-        else s.totalAfternoon += 1
+        else if (final === 'afternoon') s.totalAfternoon += 1
         s.consecutiveOff = 0
         s.lastShift = final
         if (weekend) s.weekendOffCurrent = false

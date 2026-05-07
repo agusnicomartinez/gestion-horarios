@@ -98,6 +98,14 @@ export default function Settings() {
     reload()
   }
 
+  async function onUpdateCoverage(c: Category, field: keyof Category['coverage'], value: number) {
+    const next = Math.max(0, Math.floor(value))
+    await db.categories.update(c.id, {
+      coverage: { ...c.coverage, [field]: next },
+    })
+    reload()
+  }
+
   useEffect(() => {
     reload()
   }, [])
@@ -212,11 +220,34 @@ export default function Settings() {
           {categories.length === 0 && <li className="muted">Sin categorías.</li>}
           {categories.map((c) => {
             const dept = departments.find((d) => d.id === c.department_id)
+            const cov = c.coverage ?? { morning: 1, afternoon: 1, night: 0, partido: 0 }
             return (
-              <li key={c.id} className="row">
-                <div>
+              <li key={c.id} className="row category-row">
+                <div className="grow">
                   <strong>{c.name}</strong>
                   <div className="muted small">Departamento: {dept?.name ?? '—'}</div>
+                  <div className="coverage-grid">
+                    <label>
+                      <span>M</span>
+                      <input type="number" min={0} value={cov.morning}
+                        onChange={(e) => onUpdateCoverage(c, 'morning', +e.target.value)} />
+                    </label>
+                    <label>
+                      <span>T</span>
+                      <input type="number" min={0} value={cov.afternoon}
+                        onChange={(e) => onUpdateCoverage(c, 'afternoon', +e.target.value)} />
+                    </label>
+                    <label>
+                      <span>N</span>
+                      <input type="number" min={0} value={cov.night}
+                        onChange={(e) => onUpdateCoverage(c, 'night', +e.target.value)} />
+                    </label>
+                    <label>
+                      <span>P</span>
+                      <input type="number" min={0} value={cov.partido}
+                        onChange={(e) => onUpdateCoverage(c, 'partido', +e.target.value)} />
+                    </label>
+                  </div>
                 </div>
                 <div className="actions">
                   <button className="link" onClick={() => onRenameCat(c)}>Renombrar</button>
