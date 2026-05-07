@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { db } from '../../lib/db'
 import { useSession } from '../../hooks/useSession'
 import { daysBetween, requestWindow } from '../../lib/dates'
-import { consumedFromRequests, remainingBalance } from '../../lib/balance'
-import type { DayRequest, GlobalSettings, RequestType } from '../../types/database'
+import { consumedFromRequests, consumedRestDays, remainingBalance } from '../../lib/balance'
+import type { DayRequest, GlobalSettings, RequestType, ScheduleEntry } from '../../types/database'
 import { format } from 'date-fns'
 
 export default function EmployeeRequest() {
   const session = useSession()
   const [requests, setRequests] = useState<DayRequest[]>([])
   const [settings, setSettings] = useState<GlobalSettings | null>(null)
+  const [entries, setEntries] = useState<ScheduleEntry[]>([])
   const [type, setType] = useState<RequestType>('vacation')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
@@ -26,6 +27,8 @@ export default function EmployeeRequest() {
       .sort((a, b) => b.start_date.localeCompare(a.start_date))
     setRequests(mine)
     setSettings(await db.settings.get())
+    const allEntries = await db.scheduleEntries.list()
+    setEntries(allEntries.filter((e) => e.employee_id === session.userId))
   }
 
   useEffect(() => {
@@ -34,8 +37,10 @@ export default function EmployeeRequest() {
 
   if (!session || !settings) return null
 
-  const consumed = consumedFromRequests(requests, session.userId, new Date().getFullYear())
-  const remaining = remainingBalance(settings, consumed)
+  const year = new Date().getFullYear()
+  const consumedReq = consumedFromRequests(requests, session.userId, year)
+  const restConsumed = consumedRestDays(entries, requests, session.userId, year)
+  const remaining = remainingBalance(settings, { ...consumedReq, rest: restConsumed })
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -107,6 +112,10 @@ export default function EmployeeRequest() {
         <div className="balance">
           <span className="muted">Festivos</span>
           <strong>{remaining.holiday} / {settings.holiday_days_per_year}</strong>
+        </div>
+        <div className="balance">
+          <span className="muted">Días libres</span>
+          <strong>{remaining.rest} / {settings.rest_days_per_year}</strong>
         </div>
       </div>
 

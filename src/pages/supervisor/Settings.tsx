@@ -8,6 +8,7 @@ export default function Settings() {
   const [vacation, setVacation] = useState(0)
   const [personal, setPersonal] = useState(0)
   const [holidayDays, setHolidayDays] = useState(0)
+  const [restDays, setRestDays] = useState(0)
   const [savingSettings, setSavingSettings] = useState(false)
   const [newDate, setNewDate] = useState('')
   const [newDescription, setNewDescription] = useState('')
@@ -18,6 +19,7 @@ export default function Settings() {
     setVacation(s.vacation_days_per_year)
     setPersonal(s.personal_days_per_year)
     setHolidayDays(s.holiday_days_per_year)
+    setRestDays(s.rest_days_per_year)
     const h = await db.publicHolidays.list()
     h.sort((a, b) => a.date.localeCompare(b.date))
     setHolidays(h)
@@ -34,6 +36,7 @@ export default function Settings() {
       vacation_days_per_year: vacation,
       personal_days_per_year: personal,
       holiday_days_per_year: holidayDays,
+      rest_days_per_year: restDays,
     })
     setSavingSettings(false)
     reload()
@@ -72,6 +75,13 @@ export default function Settings() {
         <label>
           Festivos / año
           <input type="number" min={0} value={holidayDays} onChange={(e) => setHolidayDays(+e.target.value)} />
+        </label>
+        <label>
+          Días libres / año (descansos regulares)
+          <input type="number" min={0} value={restDays} onChange={(e) => setRestDays(+e.target.value)} />
+          <span className="muted small">
+            Total días no trabajados al año por empleado. Objetivo mensual ≈ {Math.round(restDays / 12)} días.
+          </span>
         </label>
         <div className="actions">
           <button type="submit" disabled={savingSettings}>

@@ -26,6 +26,7 @@ export interface GlobalSettings {
   vacation_days_per_year: number
   personal_days_per_year: number
   holiday_days_per_year: number
+  rest_days_per_year: number
   updated_at: string
 }
 

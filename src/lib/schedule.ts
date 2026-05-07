@@ -62,6 +62,8 @@ export interface GenerateInput {
   holidays: PublicHoliday[]
   morningSlotsPerDay?: Record<string, number>
   carryOver?: Record<string, Shift[]>
+  /** Total días libres regulares al año por empleado (presupuesto). */
+  restDaysPerYear?: number
 }
 
 export interface GenerateOutput {
@@ -77,6 +79,7 @@ export interface Violation {
     | 'short-stretch'
     | 'over-max-rest'
     | 'no-weekend-rest'
+    | 'budget-deviation'
   detail: string
   employeeId?: string
 }
@@ -489,6 +492,25 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
         employeeId: e.id,
         detail: `${e.full_name} no tiene ningún fin de semana completo de descanso este mes`,
       })
+    }
+  }
+
+  // Annual rest budget check: warn if monthly off days deviate too much
+  // from the target (rest_days_per_year / 12). Tolerance ±3 days.
+  if (input.restDaysPerYear && input.restDaysPerYear > 0) {
+    const monthlyTarget = input.restDaysPerYear / 12
+    for (const e of input.employees) {
+      const myEntries = entries.filter((x) => x.employee_id === e.id)
+      const offCount = myEntries.filter((x) => x.shift === 'off').length
+      const deviation = offCount - monthlyTarget
+      if (Math.abs(deviation) > 3) {
+        violations.push({
+          date: input.monthISO,
+          kind: 'budget-deviation',
+          employeeId: e.id,
+          detail: `${e.full_name}: ${offCount} días libres este mes (objetivo ${monthlyTarget.toFixed(1)} ± 3, desviación ${deviation > 0 ? '+' : ''}${deviation.toFixed(0)})`,
+        })
+      }
     }
   }
 

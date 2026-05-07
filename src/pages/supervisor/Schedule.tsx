@@ -76,6 +76,7 @@ export default function SupervisorSchedule() {
         prevSchedules.some((s) => s.id === e.schedule_id),
       )
 
+      const settings = await db.settings.get()
       const result = generateSchedule({
         monthISO: targetMonth,
         employees,
@@ -84,6 +85,7 @@ export default function SupervisorSchedule() {
         ),
         holidays,
         carryOver: carryOverFromEntries(prevEntries, targetMonth),
+        restDaysPerYear: settings.rest_days_per_year,
       })
 
       await db.scheduleEntries.insertMany(

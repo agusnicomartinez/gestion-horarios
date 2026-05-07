@@ -78,15 +78,19 @@ function tableOf<T extends Row>(key: string) {
   }
 }
 
+const DEFAULT_SETTINGS: GlobalSettings = {
+  id: 1,
+  vacation_days_per_year: 31,
+  personal_days_per_year: 3,
+  holiday_days_per_year: 14,
+  rest_days_per_year: 223,
+  updated_at: new Date().toISOString(),
+}
+
 const settingsTable = {
   async get(): Promise<GlobalSettings> {
-    return read<GlobalSettings>('settings', {
-      id: 1,
-      vacation_days_per_year: 31,
-      personal_days_per_year: 3,
-      holiday_days_per_year: 14,
-      updated_at: new Date().toISOString(),
-    })
+    const stored = read<Partial<GlobalSettings>>('settings', {})
+    return { ...DEFAULT_SETTINGS, ...stored }
   },
   async update(patch: Partial<GlobalSettings>): Promise<GlobalSettings> {
     const current = await settingsTable.get()
