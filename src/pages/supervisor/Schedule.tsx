@@ -36,9 +36,7 @@ function shiftAllowedFor(
   emp: Employee,
   shift: 'morning' | 'afternoon' | 'night' | 'partido',
 ): boolean {
-  if (emp.shift_type === 'all') return true
-  if (emp.shift_type === 'both') return shift === 'morning' || shift === 'afternoon'
-  return emp.shift_type === shift
+  return (emp.shifts ?? ['morning', 'afternoon']).includes(shift)
 }
 
 export default function SupervisorSchedule() {

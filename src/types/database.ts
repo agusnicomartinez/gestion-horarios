@@ -1,4 +1,5 @@
 export type ShiftType = 'morning' | 'afternoon' | 'both' | 'night' | 'partido' | 'all'
+export type WorkShift = 'morning' | 'afternoon' | 'night' | 'partido'
 export type RequestType = 'vacation' | 'personal' | 'holiday' | 'sick'
 export type RequestStatus = 'pending' | 'approved' | 'rejected'
 export type Shift = 'morning' | 'afternoon' | 'off' | 'vacation' | 'holiday' | 'personal' | 'sick' | 'night' | 'partido'
@@ -32,7 +33,11 @@ export interface Employee {
   id: string
   dni: string
   full_name: string
-  shift_type: ShiftType
+  /** Specific shifts this employee can be assigned to. Replaces the old
+   *  shift_type enum so any combination is possible. */
+  shifts: WorkShift[]
+  /** @deprecated kept only for migration compatibility — use `shifts` */
+  shift_type?: ShiftType
   active: boolean
   category_id: string | null
   created_at: string

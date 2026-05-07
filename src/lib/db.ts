@@ -161,10 +161,22 @@ const MIGRATIONS_KEY = '__migrations'
  *   schedule has a department_id by creating a default "General" department
  *   + "General" category and back-filling existing rows.
  */
+function shiftTypeToShifts(t: string | undefined): ('morning' | 'afternoon' | 'night' | 'partido')[] {
+  switch (t) {
+    case 'morning': return ['morning']
+    case 'afternoon': return ['afternoon']
+    case 'night': return ['night']
+    case 'partido': return ['partido']
+    case 'both': return ['morning', 'afternoon']
+    case 'all': return ['morning', 'afternoon', 'night', 'partido']
+    default: return ['morning', 'afternoon']
+  }
+}
+
 export async function runMigrations(): Promise<void> {
   const applied = read<string[]>(MIGRATIONS_KEY, [])
   const want = 'depts_categories_v1'
-  if (applied.includes(want)) return
+  const wantShifts = 'employee_shifts_array_v1'
 
   let depts = await db.departments.list()
   let cats = await db.categories.list()
@@ -189,9 +201,13 @@ export async function runMigrations(): Promise<void> {
 
   const employees = await db.employees.list()
   for (const e of employees) {
-    if (!e.category_id) {
-      await db.employees.update(e.id, { category_id: cat.id })
+    const patch: Partial<Employee> = {}
+    if (!e.category_id) patch.category_id = cat.id
+    const anyEmp = e as unknown as { shifts?: string[]; shift_type?: string }
+    if (!anyEmp.shifts || anyEmp.shifts.length === 0) {
+      patch.shifts = shiftTypeToShifts(anyEmp.shift_type) as Employee['shifts']
     }
+    if (Object.keys(patch).length > 0) await db.employees.update(e.id, patch)
   }
   const schedules = await db.schedules.list()
   for (const s of schedules) {
@@ -200,5 +216,8 @@ export async function runMigrations(): Promise<void> {
     }
   }
 
-  write(MIGRATIONS_KEY, [...applied, want])
+  const next = new Set(applied)
+  next.add(want)
+  next.add(wantShifts)
+  write(MIGRATIONS_KEY, [...next])
 }

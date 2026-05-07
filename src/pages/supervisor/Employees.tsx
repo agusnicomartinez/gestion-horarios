@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { db } from '../../lib/db'
-import type { Category, Department, Employee, ShiftType } from '../../types/database'
+import type { Category, Department, Employee, WorkShift } from '../../types/database'
+
+const ALL_SHIFTS: { id: WorkShift; label: string }[] = [
+  { id: 'morning', label: 'Mañana' },
+  { id: 'afternoon', label: 'Tarde' },
+  { id: 'night', label: 'Noche' },
+  { id: 'partido', label: 'Partido' },
+]
 
 export default function Employees() {
   const [list, setList] = useState<Employee[]>([])
@@ -80,7 +87,7 @@ export default function Employees() {
             <div>
               <strong>{e.full_name}</strong>
               <div className="muted small">
-                DNI {e.dni} · Turno {labelShift(e.shift_type)} · {catName(e.category_id)}
+                DNI {e.dni} · Turnos: {labelShifts(e.shifts)} · {catName(e.category_id)}
               </div>
             </div>
             <div className="actions">
@@ -101,15 +108,12 @@ export default function Employees() {
   )
 }
 
-function labelShift(s: ShiftType): string {
-  switch (s) {
-    case 'morning': return 'mañana'
-    case 'afternoon': return 'tarde'
-    case 'both': return 'mañana y tarde'
-    case 'night': return 'noche'
-    case 'partido': return 'partido'
-    case 'all': return 'todos'
-  }
+function labelShifts(shifts: WorkShift[] | undefined): string {
+  if (!shifts || shifts.length === 0) return 'sin asignar'
+  if (shifts.length === ALL_SHIFTS.length) return 'todos'
+  return shifts
+    .map((s) => ALL_SHIFTS.find((x) => x.id === s)?.label.toLowerCase() ?? s)
+    .join(', ')
 }
 
 function EmployeeForm({
@@ -127,13 +131,21 @@ function EmployeeForm({
 }) {
   const [dni, setDni] = useState(initial?.dni ?? '')
   const [name, setName] = useState(initial?.full_name ?? '')
-  const [shiftType, setShiftType] = useState<ShiftType>(initial?.shift_type ?? 'both')
+  const [shifts, setShifts] = useState<WorkShift[]>(
+    initial?.shifts ?? ['morning', 'afternoon'],
+  )
   const [active, setActive] = useState(initial?.active ?? true)
   const [categoryId, setCategoryId] = useState<string>(
     initial?.category_id ?? categories[0]?.id ?? '',
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  function toggleShift(s: WorkShift) {
+    setShifts((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
+    )
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -146,13 +158,17 @@ function EmployeeForm({
       setError('Asignale una categoría (creala en Ajustes si no existe)')
       return
     }
+    if (shifts.length === 0) {
+      setError('Tildá al menos un turno que pueda hacer')
+      return
+    }
     setBusy(true)
     try {
       if (initial) {
         await db.employees.update(initial.id, {
           dni: dni.trim().toUpperCase(),
           full_name: name.trim(),
-          shift_type: shiftType,
+          shifts,
           active,
           category_id: categoryId,
         })
@@ -166,7 +182,7 @@ function EmployeeForm({
         await db.employees.insert({
           dni: dni.trim().toUpperCase(),
           full_name: name.trim(),
-          shift_type: shiftType,
+          shifts,
           active,
           category_id: categoryId,
           created_at: new Date().toISOString(),
@@ -197,17 +213,19 @@ function EmployeeForm({
           })}
         </select>
       </label>
-      <label>
-        Tipo de turno
-        <select value={shiftType} onChange={(e) => setShiftType(e.target.value as ShiftType)}>
-          <option value="all">Todos los turnos</option>
-          <option value="both">Mañana y tarde</option>
-          <option value="morning">Solo mañana</option>
-          <option value="afternoon">Solo tarde</option>
-          <option value="night">Solo noche</option>
-          <option value="partido">Solo partido</option>
-        </select>
-      </label>
+      <fieldset className="shift-checkboxes">
+        <legend>Turnos que puede hacer</legend>
+        {ALL_SHIFTS.map((s) => (
+          <label key={s.id} className="check">
+            <input
+              type="checkbox"
+              checked={shifts.includes(s.id)}
+              onChange={() => toggleShift(s.id)}
+            />
+            {s.label}
+          </label>
+        ))}
+      </fieldset>
       <label className="check">
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Activo
       </label>

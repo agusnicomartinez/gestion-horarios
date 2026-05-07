@@ -119,13 +119,10 @@ function makeInitialStats(): Stats {
 
 function shiftAllowed(emp: Employee, shift: Shift): boolean {
   if (shift === 'off') return true
-  if (emp.shift_type === 'all') return true
-  if (emp.shift_type === 'both') return shift === 'morning' || shift === 'afternoon'
-  if (emp.shift_type === 'morning') return shift === 'morning'
-  if (emp.shift_type === 'afternoon') return shift === 'afternoon'
-  if (emp.shift_type === 'night') return shift === 'night'
-  if (emp.shift_type === 'partido') return shift === 'partido'
-  return false
+  if (shift !== 'morning' && shift !== 'afternoon' && shift !== 'night' && shift !== 'partido') {
+    return true
+  }
+  return (emp.shifts ?? ['morning', 'afternoon']).includes(shift)
 }
 
 /**
@@ -315,9 +312,11 @@ function assignWeekendOffs(
   )
   // Sort: morning-or-afternoon-only first (they're constrained), then "both"
   // — so specialists get assigned first, "both"s spread across remaining slots.
+  // Constrained employees (single allowed shift) first, then those who can
+  // do multiple shifts.
   const ordered = [...need].sort((a, b) => {
-    const sa = a.shift_type === 'both' ? 1 : 0
-    const sb = b.shift_type === 'both' ? 1 : 0
+    const sa = (a.shifts ?? ['morning', 'afternoon']).length > 1 ? 1 : 0
+    const sb = (b.shifts ?? ['morning', 'afternoon']).length > 1 ? 1 : 0
     return sa - sb
   })
   // Track how many already assigned per weekend
@@ -393,12 +392,11 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     // precedence over min-stretch (short-stretch violation is suppressed
     // when the cut is caused by an approved off).
     if (s.consecutiveOff >= PREFERRED_MAX_REST) return true
-    // Single-shift specialists (e.g., afternoon-only) bypass canSustain too:
+    // Single-shift specialists (e.g., afternoon-only) bypass canSustain:
     // they're the natural cover for their shift, and a short stretch caused
-    // by their assigned weekend off is already suppressed. Without this they
-    // get blocked, the "both" employees fill in and get displaced when the
-    // specialist returns — that creates the actual short stretches.
-    if (e.shift_type !== 'both') return true
+    // by their assigned weekend off is already suppressed.
+    const empShifts = e.shifts ?? ['morning', 'afternoon']
+    if (empShifts.length === 1) return true
     // Optional fresh start for "both" employees: only if can sustain MIN_STRETCH.
     return canSustainStretch(e.id, dISO, allOffs)
   }
@@ -409,7 +407,8 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
   ): number[] => {
     const s = stats.get(e.id)!
     const t = tier(s)
-    const isSpecialist = e.shift_type === shift ? 0 : 1
+    const empShifts = e.shifts ?? ['morning', 'afternoon']
+    const isSpecialist = empShifts.length === 1 && empShifts[0] === shift ? 0 : 1
     const continuity = s.lastShift === shift ? 0 : 1
     const transitionPick = continuity === 1 ? -s.stretchDay : 0
     const myShiftCount =

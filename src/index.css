@@ -350,6 +350,22 @@ h2 { font-size: 1.15rem; margin: 0 0 0.5rem; }
 .coverage-grid label span { text-align: center; }
 .coverage-grid input { padding: 0.3rem; text-align: center; }
 
+.shift-checkboxes {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+.shift-checkboxes legend {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  padding: 0 0.4rem;
+}
+.shift-checkboxes .check {
+  margin: 0.25rem 0;
+  color: var(--text);
+}
+
 /* ============== ANNUAL CALENDAR ============== */
 .employee-picker {
   display: flex;
