@@ -125,6 +125,19 @@ function isOff(empId: string, dateISO: string, requests: DayRequest[]): boolean 
   )
 }
 
+function canSustainStretch(
+  empId: string,
+  dateISO: string,
+  requests: DayRequest[],
+): boolean {
+  const start = fromISO(dateISO)
+  for (let i = 0; i < MIN_STRETCH; i++) {
+    const d = toISO(addDays(start, i))
+    if (isOff(empId, d, requests)) return false
+  }
+  return true
+}
+
 function applyCarryOver(stats: Stats, recent: Shift[]) {
   if (recent.length === 0) return
   const last = recent[recent.length - 1]
@@ -284,6 +297,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     e: Employee,
     shift: 'morning' | 'afternoon',
     dailyAssignment: Map<string, Shift>,
+    dISO: string,
   ): boolean => {
     if (dailyAssignment.has(e.id)) return false
     if (!shiftAllowed(e, shift)) return false
@@ -291,7 +305,10 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     if (s.stretchDay >= MAX_STRETCH) return false
     if (shift === 'morning' && s.lastShift === 'afternoon') return false
     if (s.stretchDay >= 1) return true
-    return s.consecutiveOff >= minRestFor(s)
+    if (s.consecutiveOff < minRestFor(s)) return false
+    // Look-ahead: don't start a stretch that an upcoming approved off would
+    // cut short below MIN_STRETCH (creates short-stretch violations).
+    return canSustainStretch(e.id, dISO, allOffs)
   }
 
   const score = (e: Employee, shift: 'morning' | 'afternoon'): number[] => {
@@ -299,20 +316,28 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     const t = tier(s)
     const isSpecialist = e.shift_type === shift ? 0 : 1
     const continuity = s.lastShift === shift ? 0 : 1
+    // When forced to transition (continuity=1, e.g., a "both" employee covers
+    // afternoon while Jordi rests), prefer the candidate whose existing stretch
+    // is longest. That employee's stretch already has decent length, so the
+    // transition won't truncate it below MIN_STRETCH.
+    const transitionPick = continuity === 1 ? -s.stretchDay : 0
     const myShiftCount = shift === 'morning' ? s.totalMorning : s.totalAfternoon
-    // Specialist first: an afternoon-only employee should always cover afternoon
-    // when eligible (and morning-only morning), even if a "both" employee is in
-    // a higher tier. Then tier (forced > preferred > optional). Then continuity
-    // to minimise mid-stretch shift changes. Then balance.
-    return [isSpecialist, t, continuity, myShiftCount, s.totalShifts]
+    // Specialist beats everything (Jordi covers afternoon when eligible).
+    // Continuity next (no shift change preferred). Then transitionPick: if
+    // a transition is unavoidable, prefer the candidate whose existing
+    // stretch is longest — their combined stretch will still meet MIN_STRETCH,
+    // whereas a fresh employee transitioning would start a stretch that
+    // gets cut short the moment the specialist returns. Tier comes after.
+    return [isSpecialist, continuity, transitionPick, t, myShiftCount, s.totalShifts]
   }
 
   const pickShiftWorker = (
     shift: 'morning' | 'afternoon',
     dailyAssignment: Map<string, Shift>,
+    dISO: string,
   ): string | null => {
     const candidates = input.employees.filter((e) =>
-      isShiftEligible(e, shift, dailyAssignment),
+      isShiftEligible(e, shift, dailyAssignment, dISO),
     )
     if (candidates.length === 0) return null
     candidates.sort((a, b) => {
@@ -342,7 +367,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     }
 
     // Afternoon: strict 1 worker (per user spec).
-    const afternoonId = pickShiftWorker('afternoon', dailyAssignment)
+    const afternoonId = pickShiftWorker('afternoon', dailyAssignment, dISO)
     if (afternoonId) {
       dailyAssignment.set(afternoonId, 'afternoon')
     } else {
@@ -360,13 +385,13 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       if (dailyAssignment.has(e.id)) return false
       const s = stats.get(e.id)!
       if (tier(s) !== 0) return false
-      return isShiftEligible(e, 'morning', dailyAssignment)
+      return isShiftEligible(e, 'morning', dailyAssignment, dISO)
     }).length
     const targetMorning = Math.max(baseMorning, tier0NeedingMorning)
 
     let placedMorning = 0
     for (let i = 0; i < targetMorning; i++) {
-      const morningId = pickShiftWorker('morning', dailyAssignment)
+      const morningId = pickShiftWorker('morning', dailyAssignment, dISO)
       if (morningId) {
         dailyAssignment.set(morningId, 'morning')
         placedMorning++
