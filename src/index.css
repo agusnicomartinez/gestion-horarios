@@ -366,6 +366,19 @@ h2 { font-size: 1.15rem; margin: 0 0 0.5rem; }
   color: var(--text);
 }
 
+.grid th.has-peak {
+  background: rgba(245, 158, 11, 0.18);
+  position: relative;
+}
+.grid th .peak-dot {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 1rem;
+  line-height: 1;
+  color: #d97706;
+}
+
 /* ============== ANNUAL CALENDAR ============== */
 .employee-picker {
   display: flex;

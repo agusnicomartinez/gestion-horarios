@@ -1,5 +1,6 @@
 import type {
   Category,
+  CoverageOverride,
   DayRequest,
   Department,
   Employee,
@@ -117,6 +118,7 @@ export const db = {
   scheduleEntries: tableOf<ScheduleEntry>('schedule_entries'),
   departments: tableOf<Department>('departments'),
   categories: tableOf<Category>('categories'),
+  coverageOverrides: tableOf<CoverageOverride>('coverage_overrides'),
   settings: settingsTable,
   async resetAll(): Promise<void> {
     Object.keys(localStorage)

@@ -12,6 +12,18 @@ export interface Department {
   created_at: string
 }
 
+export interface CoverageOverride {
+  id: string
+  category_id: string
+  shift: WorkShift
+  start_date: string
+  end_date: string
+  min: number | null
+  max: number | null
+  notes: string
+  created_at: string
+}
+
 export interface Category {
   id: string
   department_id: string

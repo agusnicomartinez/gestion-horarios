@@ -12,6 +12,7 @@ interface NavItem {
 const SUPERVISOR_NAV: NavItem[] = [
   { to: '/supervisor', label: 'Cronograma', icon: '📅' },
   { to: '/supervisor/calendar', label: 'Calendario', icon: '🗓️' },
+  { to: '/supervisor/peaks', label: 'Picos', icon: '📈' },
   { to: '/supervisor/requests', label: 'Solicitudes', icon: '📨' },
   { to: '/supervisor/employees', label: 'Empleados', icon: '👥' },
   { to: '/supervisor/settings', label: 'Ajustes', icon: '⚙️' },

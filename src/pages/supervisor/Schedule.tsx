@@ -8,6 +8,7 @@ import {
 import { eachDayInMonth, fromISO, monthKey, nextMonth, toISO } from '../../lib/dates'
 import type {
   Category,
+  CoverageOverride,
   DayRequest,
   Department,
   Employee,
@@ -50,10 +51,11 @@ export default function SupervisorSchedule() {
   const [violations, setViolations] = useState<Violation[]>([])
   const [requests, setRequests] = useState<DayRequest[]>([])
   const [holidays, setHolidays] = useState<PublicHoliday[]>([])
+  const [overrides, setOverrides] = useState<CoverageOverride[]>([])
   const [busy, setBusy] = useState(false)
 
   async function reload() {
-    const [emps, schedulesAll, requestsAll, holidaysAll, deptsAll, catsAll] =
+    const [emps, schedulesAll, requestsAll, holidaysAll, deptsAll, catsAll, ovsAll] =
       await Promise.all([
         db.employees.list(),
         db.schedules.list(),
@@ -61,7 +63,9 @@ export default function SupervisorSchedule() {
         db.publicHolidays.list(),
         db.departments.list(),
         db.categories.list(),
+        db.coverageOverrides.list(),
       ])
+    setOverrides(ovsAll)
     setDepartments(deptsAll)
     setCategories(catsAll)
     const dept = departmentId || deptsAll[0]?.id || ''
@@ -145,6 +149,7 @@ export default function SupervisorSchedule() {
         if (catEmployees.length === 0) continue
         const catEmpIds = new Set(catEmployees.map((e) => e.id))
         const catApproved = allApproved.filter((r) => catEmpIds.has(r.employee_id))
+        const catOverrides = overrides.filter((o) => o.category_id === cat.id)
         const result = generateSchedule({
           monthISO: targetMonth,
           employees: catEmployees,
@@ -153,6 +158,7 @@ export default function SupervisorSchedule() {
           carryOver: carryOverFromEntries(prevEntries, targetMonth),
           restDaysPerYear: settings.rest_days_per_year,
           coverage: cat.coverage,
+          coverageOverrides: catOverrides,
         })
         generatedEntries.push(...result.entries)
         allViolations.push(...result.violations)
@@ -355,18 +361,47 @@ export default function SupervisorSchedule() {
               <thead>
                 <tr>
                   <th className="sticky-col">Empleado</th>
-                  {days.map((d) => (
-                    <th
-                      key={toISO(d)}
-                      className={
-                        (holidayDates.has(toISO(d)) ? 'holiday ' : '') +
-                        (d.getDay() === 0 || d.getDay() === 6 ? 'weekend' : '')
-                      }
-                    >
-                      <div>{format(d, 'd')}</div>
-                      <div className="dow">{['D','L','M','X','J','V','S'][d.getDay()]}</div>
-                    </th>
-                  ))}
+                  {days.map((d) => {
+                    const dISO = toISO(d)
+                    const dayOverrides = overrides.filter(
+                      (o) =>
+                        dISO >= o.start_date &&
+                        dISO <= o.end_date &&
+                        categories.some(
+                          (c) => c.id === o.category_id && c.department_id === departmentId,
+                        ),
+                    )
+                    const tooltip = dayOverrides
+                      .map((o) => {
+                        const cat = categories.find((c) => c.id === o.category_id)?.name ?? ''
+                        const sLabel = { morning: 'M', afternoon: 'T', night: 'N', partido: 'P' }[o.shift]
+                        const range =
+                          o.min !== null && o.max !== null
+                            ? `${o.min}-${o.max}`
+                            : o.min !== null
+                              ? `mín ${o.min}`
+                              : o.max !== null
+                                ? `máx ${o.max}`
+                                : ''
+                        return `${cat} ${sLabel} ${range}${o.notes ? ` — ${o.notes}` : ''}`
+                      })
+                      .join('\n')
+                    return (
+                      <th
+                        key={dISO}
+                        className={[
+                          holidayDates.has(dISO) ? 'holiday' : '',
+                          d.getDay() === 0 || d.getDay() === 6 ? 'weekend' : '',
+                          dayOverrides.length > 0 ? 'has-peak' : '',
+                        ].join(' ')}
+                        title={tooltip || undefined}
+                      >
+                        <div>{format(d, 'd')}</div>
+                        <div className="dow">{['D','L','M','X','J','V','S'][d.getDay()]}</div>
+                        {dayOverrides.length > 0 && <div className="peak-dot" aria-hidden>•</div>}
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
               <tbody>
