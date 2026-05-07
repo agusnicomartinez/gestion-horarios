@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useSession } from './hooks/useSession'
 import { hasAnySupervisor } from './lib/session'
-import { seedIfEmpty } from './lib/db'
+import { runMigrations, seedIfEmpty } from './lib/db'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
 import Layout from './components/Layout'
@@ -19,9 +19,11 @@ function App() {
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
 
   useEffect(() => {
-    seedIfEmpty().then(async () => {
+    ;(async () => {
+      await seedIfEmpty()
+      await runMigrations()
       setNeedsSetup(!(await hasAnySupervisor()))
-    })
+    })()
   }, [session?.userId])
 
   if (needsSetup === null) {

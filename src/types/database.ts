@@ -5,12 +5,36 @@ export type Shift = 'morning' | 'afternoon' | 'off' | 'vacation' | 'holiday' | '
 export type ScheduleStatus = 'draft' | 'published'
 export type EntrySource = 'auto' | 'manual' | 'request'
 
+export interface Department {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface Category {
+  id: string
+  department_id: string
+  name: string
+  /**
+   * Minimum daily coverage per shift. v0 only writes morning/afternoon.
+   * Phase B will add night/partido and make these configurable.
+   */
+  coverage: {
+    morning: number
+    afternoon: number
+    night: number
+    partido: number
+  }
+  created_at: string
+}
+
 export interface Employee {
   id: string
   dni: string
   full_name: string
   shift_type: ShiftType
   active: boolean
+  category_id: string | null
   created_at: string
 }
 
@@ -52,6 +76,7 @@ export interface DayRequest {
 export interface Schedule {
   id: string
   month: string
+  department_id: string | null
   status: ScheduleStatus
   created_at: string
   published_at?: string | null

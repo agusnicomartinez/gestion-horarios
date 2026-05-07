@@ -2,29 +2,42 @@ import { useEffect, useMemo, useState } from 'react'
 import { db } from '../../lib/db'
 import { useSession } from '../../hooks/useSession'
 import { daysBetween, monthKey, nextMonth } from '../../lib/dates'
-import type { DayRequest, Employee, RequestType } from '../../types/database'
+import type { Category, DayRequest, Department, Employee, RequestType } from '../../types/database'
 
 export default function Requests() {
   const session = useSession()
   const [requests, setRequests] = useState<DayRequest[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [departmentId, setDepartmentId] = useState<string>('')
   const [targetMonth, setTargetMonth] = useState<string>(monthKey(nextMonth(new Date())))
 
   async function reload() {
-    const [r, e] = await Promise.all([db.dayRequests.list(), db.employees.list()])
+    const [r, e, ds, cs] = await Promise.all([
+      db.dayRequests.list(),
+      db.employees.list(),
+      db.departments.list(),
+      db.categories.list(),
+    ])
     r.sort((a, b) => a.start_date.localeCompare(b.start_date))
     setRequests(r)
     setEmployees(e)
+    setDepartments(ds)
+    setCategories(cs)
+    if (!departmentId && ds.length > 0) setDepartmentId(ds[0].id)
   }
 
   useEffect(() => {
     reload()
   }, [])
 
-  const filtered = useMemo(
-    () => requests.filter((r) => r.target_month === targetMonth),
-    [requests, targetMonth],
-  )
+  const filtered = useMemo(() => {
+    if (!departmentId) return requests.filter((r) => r.target_month === targetMonth)
+    const catIds = new Set(categories.filter((c) => c.department_id === departmentId).map((c) => c.id))
+    const empIds = new Set(employees.filter((e) => e.category_id && catIds.has(e.category_id)).map((e) => e.id))
+    return requests.filter((r) => r.target_month === targetMonth && empIds.has(r.employee_id))
+  }, [requests, targetMonth, employees, categories, departmentId])
 
   const employeeMap = useMemo(() => {
     const m = new Map<string, Employee>()
@@ -45,11 +58,19 @@ export default function Requests() {
     <section>
       <header className="section-head">
         <h1>Solicitudes</h1>
-        <input
-          type="month"
-          value={targetMonth.slice(0, 7)}
-          onChange={(e) => setTargetMonth(`${e.target.value}-01`)}
-        />
+        <div className="actions">
+          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+            {departments.length === 0 && <option value="">— sin departamentos —</option>}
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+          <input
+            type="month"
+            value={targetMonth.slice(0, 7)}
+            onChange={(e) => setTargetMonth(`${e.target.value}-01`)}
+          />
+        </div>
       </header>
 
       <ul className="list">

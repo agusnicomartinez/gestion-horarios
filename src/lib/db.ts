@@ -1,11 +1,13 @@
 import type {
+  Category,
+  DayRequest,
+  Department,
   Employee,
-  Supervisor,
   GlobalSettings,
   PublicHoliday,
-  DayRequest,
   Schedule,
   ScheduleEntry,
+  Supervisor,
 } from '../types/database'
 
 const PREFIX = 'gh:'
@@ -113,6 +115,8 @@ export const db = {
   dayRequests: tableOf<DayRequest>('day_requests'),
   schedules: tableOf<Schedule>('schedules'),
   scheduleEntries: tableOf<ScheduleEntry>('schedule_entries'),
+  departments: tableOf<Department>('departments'),
+  categories: tableOf<Category>('categories'),
   settings: settingsTable,
   async resetAll(): Promise<void> {
     Object.keys(localStorage)
@@ -147,4 +151,54 @@ export async function seedIfEmpty(): Promise<void> {
   }
   await db.settings.update({})
   write(SEEDED_KEY, true)
+}
+
+const MIGRATIONS_KEY = '__migrations'
+
+/**
+ * Idempotent migrations for the local data store. Currently:
+ * - depts_categories_v1: ensures every employee has a category_id and every
+ *   schedule has a department_id by creating a default "General" department
+ *   + "General" category and back-filling existing rows.
+ */
+export async function runMigrations(): Promise<void> {
+  const applied = read<string[]>(MIGRATIONS_KEY, [])
+  const want = 'depts_categories_v1'
+  if (applied.includes(want)) return
+
+  let depts = await db.departments.list()
+  let cats = await db.categories.list()
+  let dept = depts[0]
+  if (!dept) {
+    dept = await db.departments.insert({
+      name: 'General',
+      created_at: new Date().toISOString(),
+    })
+    depts = [dept]
+  }
+  let cat = cats.find((c) => c.department_id === dept.id)
+  if (!cat) {
+    cat = await db.categories.insert({
+      department_id: dept.id,
+      name: 'General',
+      coverage: { morning: 1, afternoon: 1, night: 0, partido: 0 },
+      created_at: new Date().toISOString(),
+    })
+    cats = [cat]
+  }
+
+  const employees = await db.employees.list()
+  for (const e of employees) {
+    if (!e.category_id) {
+      await db.employees.update(e.id, { category_id: cat.id })
+    }
+  }
+  const schedules = await db.schedules.list()
+  for (const s of schedules) {
+    if (!s.department_id) {
+      await db.schedules.update(s.id, { department_id: dept.id })
+    }
+  }
+
+  write(MIGRATIONS_KEY, [...applied, want])
 }

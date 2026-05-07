@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { db } from '../../lib/db'
-import type { GlobalSettings, PublicHoliday } from '../../types/database'
+import type { Category, Department, GlobalSettings, PublicHoliday } from '../../types/database'
 
 export default function Settings() {
   const [settings, setSettings] = useState<GlobalSettings | null>(null)
@@ -12,6 +12,11 @@ export default function Settings() {
   const [savingSettings, setSavingSettings] = useState(false)
   const [newDate, setNewDate] = useState('')
   const [newDescription, setNewDescription] = useState('')
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [newDeptName, setNewDeptName] = useState('')
+  const [newCatName, setNewCatName] = useState('')
+  const [newCatDept, setNewCatDept] = useState('')
 
   async function reload() {
     const s = await db.settings.get()
@@ -23,6 +28,74 @@ export default function Settings() {
     const h = await db.publicHolidays.list()
     h.sort((a, b) => a.date.localeCompare(b.date))
     setHolidays(h)
+    const ds = await db.departments.list()
+    ds.sort((a, b) => a.name.localeCompare(b.name))
+    setDepartments(ds)
+    const cs = await db.categories.list()
+    cs.sort((a, b) => a.name.localeCompare(b.name))
+    setCategories(cs)
+    if (!newCatDept && ds.length > 0) setNewCatDept(ds[0].id)
+  }
+
+  async function onAddDept(e: FormEvent) {
+    e.preventDefault()
+    if (!newDeptName.trim()) return
+    await db.departments.insert({
+      name: newDeptName.trim(),
+      created_at: new Date().toISOString(),
+    })
+    setNewDeptName('')
+    reload()
+  }
+
+  async function onRenameDept(d: Department) {
+    const name = prompt('Nuevo nombre del departamento', d.name)
+    if (!name || !name.trim()) return
+    await db.departments.update(d.id, { name: name.trim() })
+    reload()
+  }
+
+  async function onDeleteDept(d: Department) {
+    const cats = categories.filter((c) => c.department_id === d.id)
+    if (cats.length > 0) {
+      alert(`No podés borrar "${d.name}" porque tiene ${cats.length} categoría(s) asignada(s). Borralas o moveelas primero.`)
+      return
+    }
+    if (!confirm(`Borrar departamento "${d.name}"?`)) return
+    await db.departments.remove(d.id)
+    reload()
+  }
+
+  async function onAddCat(e: FormEvent) {
+    e.preventDefault()
+    if (!newCatName.trim() || !newCatDept) return
+    await db.categories.insert({
+      department_id: newCatDept,
+      name: newCatName.trim(),
+      coverage: { morning: 1, afternoon: 1, night: 0, partido: 0 },
+      created_at: new Date().toISOString(),
+    })
+    setNewCatName('')
+    reload()
+  }
+
+  async function onRenameCat(c: Category) {
+    const name = prompt('Nuevo nombre de la categoría', c.name)
+    if (!name || !name.trim()) return
+    await db.categories.update(c.id, { name: name.trim() })
+    reload()
+  }
+
+  async function onDeleteCat(c: Category) {
+    const employees = await db.employees.list()
+    const linked = employees.filter((e) => e.category_id === c.id)
+    if (linked.length > 0) {
+      alert(`No podés borrar "${c.name}" porque tiene ${linked.length} empleado(s) asignado(s). Cambialos de categoría primero.`)
+      return
+    }
+    if (!confirm(`Borrar categoría "${c.name}"?`)) return
+    await db.categories.remove(c.id)
+    reload()
   }
 
   useEffect(() => {
@@ -89,6 +162,71 @@ export default function Settings() {
           </button>
         </div>
       </form>
+
+      <div className="card">
+        <h2>Departamentos</h2>
+        <form onSubmit={onAddDept} className="inline-form">
+          <input
+            placeholder="Nombre del departamento"
+            value={newDeptName}
+            onChange={(e) => setNewDeptName(e.target.value)}
+          />
+          <button type="submit">+ Añadir</button>
+        </form>
+        <ul className="list">
+          {departments.length === 0 && <li className="muted">Sin departamentos.</li>}
+          {departments.map((d) => {
+            const catCount = categories.filter((c) => c.department_id === d.id).length
+            return (
+              <li key={d.id} className="row">
+                <div>
+                  <strong>{d.name}</strong>
+                  <div className="muted small">{catCount} categoría(s)</div>
+                </div>
+                <div className="actions">
+                  <button className="link" onClick={() => onRenameDept(d)}>Renombrar</button>
+                  <button className="link danger" onClick={() => onDeleteDept(d)}>Eliminar</button>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+
+      <div className="card">
+        <h2>Categorías</h2>
+        <form onSubmit={onAddCat} className="inline-form">
+          <select value={newCatDept} onChange={(e) => setNewCatDept(e.target.value)}>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+          <input
+            placeholder="Nombre de la categoría"
+            value={newCatName}
+            onChange={(e) => setNewCatName(e.target.value)}
+          />
+          <button type="submit" disabled={departments.length === 0}>+ Añadir</button>
+        </form>
+        <ul className="list">
+          {categories.length === 0 && <li className="muted">Sin categorías.</li>}
+          {categories.map((c) => {
+            const dept = departments.find((d) => d.id === c.department_id)
+            return (
+              <li key={c.id} className="row">
+                <div>
+                  <strong>{c.name}</strong>
+                  <div className="muted small">Departamento: {dept?.name ?? '—'}</div>
+                </div>
+                <div className="actions">
+                  <button className="link" onClick={() => onRenameCat(c)}>Renombrar</button>
+                  <button className="link danger" onClick={() => onDeleteCat(c)}>Eliminar</button>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
 
       <div className="card">
         <h2>Festivos</h2>

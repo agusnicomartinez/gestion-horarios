@@ -1,14 +1,19 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { db } from '../../lib/db'
-import type { Employee, ShiftType } from '../../types/database'
+import type { Category, Department, Employee, ShiftType } from '../../types/database'
 
 export default function Employees() {
   const [list, setList] = useState<Employee[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [editing, setEditing] = useState<Employee | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [filterCat, setFilterCat] = useState<string>('all')
 
   async function reload() {
     setList(await db.employees.list())
+    setDepartments(await db.departments.list())
+    setCategories(await db.categories.list())
   }
 
   useEffect(() => {
@@ -26,28 +31,57 @@ export default function Employees() {
     reload()
   }
 
+  const catName = (id: string | null): string => {
+    const c = categories.find((x) => x.id === id)
+    if (!c) return '—'
+    const d = departments.find((x) => x.id === c.department_id)
+    return d ? `${d.name} · ${c.name}` : c.name
+  }
+
+  const filtered = useMemo(() => {
+    if (filterCat === 'all') return list
+    return list.filter((e) => e.category_id === filterCat)
+  }, [list, filterCat])
+
   return (
     <section>
       <header className="section-head">
         <h1>Empleados</h1>
-        <button onClick={() => { setEditing(null); setShowForm(true) }}>+ Nuevo</button>
+        <div className="actions">
+          <select value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
+            <option value="all">Todas las categorías</option>
+            {categories.map((c) => {
+              const d = departments.find((x) => x.id === c.department_id)
+              return (
+                <option key={c.id} value={c.id}>
+                  {d ? `${d.name} · ${c.name}` : c.name}
+                </option>
+              )
+            })}
+          </select>
+          <button onClick={() => { setEditing(null); setShowForm(true) }}>+ Nuevo</button>
+        </div>
       </header>
 
       {showForm && (
         <EmployeeForm
           initial={editing}
+          departments={departments}
+          categories={categories}
           onCancel={() => setShowForm(false)}
           onSave={async () => { setShowForm(false); reload() }}
         />
       )}
 
       <ul className="list">
-        {list.length === 0 && <li className="muted">No hay empleados aún.</li>}
-        {list.map((e) => (
+        {filtered.length === 0 && <li className="muted">No hay empleados en esta categoría.</li>}
+        {filtered.map((e) => (
           <li key={e.id} className="row">
             <div>
               <strong>{e.full_name}</strong>
-              <div className="muted small">DNI {e.dni} · Turno {labelShift(e.shift_type)}</div>
+              <div className="muted small">
+                DNI {e.dni} · Turno {labelShift(e.shift_type)} · {catName(e.category_id)}
+              </div>
             </div>
             <div className="actions">
               <button className="link" onClick={() => onToggleActive(e)}>
@@ -73,10 +107,14 @@ function labelShift(s: ShiftType): string {
 
 function EmployeeForm({
   initial,
+  departments,
+  categories,
   onCancel,
   onSave,
 }: {
   initial: Employee | null
+  departments: Department[]
+  categories: Category[]
   onCancel: () => void
   onSave: () => void
 }) {
@@ -84,6 +122,9 @@ function EmployeeForm({
   const [name, setName] = useState(initial?.full_name ?? '')
   const [shiftType, setShiftType] = useState<ShiftType>(initial?.shift_type ?? 'both')
   const [active, setActive] = useState(initial?.active ?? true)
+  const [categoryId, setCategoryId] = useState<string>(
+    initial?.category_id ?? categories[0]?.id ?? '',
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -94,6 +135,10 @@ function EmployeeForm({
       setError('DNI y nombre son obligatorios')
       return
     }
+    if (!categoryId) {
+      setError('Asignale una categoría (creala en Ajustes si no existe)')
+      return
+    }
     setBusy(true)
     try {
       if (initial) {
@@ -102,6 +147,7 @@ function EmployeeForm({
           full_name: name.trim(),
           shift_type: shiftType,
           active,
+          category_id: categoryId,
         })
       } else {
         const all = await db.employees.list()
@@ -115,6 +161,7 @@ function EmployeeForm({
           full_name: name.trim(),
           shift_type: shiftType,
           active,
+          category_id: categoryId,
           created_at: new Date().toISOString(),
         })
       }
@@ -129,6 +176,20 @@ function EmployeeForm({
     <form className="card form" onSubmit={onSubmit}>
       <label>DNI<input value={dni} onChange={(e) => setDni(e.target.value)} required /></label>
       <label>Nombre<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
+      <label>
+        Categoría
+        <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+          <option value="">— elegir —</option>
+          {categories.map((c) => {
+            const d = departments.find((x) => x.id === c.department_id)
+            return (
+              <option key={c.id} value={c.id}>
+                {d ? `${d.name} · ${c.name}` : c.name}
+              </option>
+            )
+          })}
+        </select>
+      </label>
       <label>
         Tipo de turno
         <select value={shiftType} onChange={(e) => setShiftType(e.target.value as ShiftType)}>

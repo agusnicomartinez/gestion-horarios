@@ -7,7 +7,9 @@ import {
 } from '../../lib/schedule'
 import { eachDayInMonth, fromISO, monthKey, nextMonth, toISO } from '../../lib/dates'
 import type {
+  Category,
   DayRequest,
+  Department,
   Employee,
   PublicHoliday,
   Schedule,
@@ -35,6 +37,9 @@ function shiftAllowedFor(emp: Employee, shift: 'morning' | 'afternoon'): boolean
 
 export default function SupervisorSchedule() {
   const [targetMonth, setTargetMonth] = useState<string>(monthKey(nextMonth(new Date())))
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [departmentId, setDepartmentId] = useState<string>('')
   const [employees, setEmployees] = useState<Employee[]>([])
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [entries, setEntries] = useState<ScheduleEntry[]>([])
@@ -44,17 +49,26 @@ export default function SupervisorSchedule() {
   const [busy, setBusy] = useState(false)
 
   async function reload() {
-    const [emps, schedulesAll, requestsAll, holidaysAll] = await Promise.all([
-      db.employees.list(),
-      db.schedules.list(),
-      db.dayRequests.list(),
-      db.publicHolidays.list(),
-    ])
-    const active = emps.filter((e) => e.active)
+    const [emps, schedulesAll, requestsAll, holidaysAll, deptsAll, catsAll] =
+      await Promise.all([
+        db.employees.list(),
+        db.schedules.list(),
+        db.dayRequests.list(),
+        db.publicHolidays.list(),
+        db.departments.list(),
+        db.categories.list(),
+      ])
+    setDepartments(deptsAll)
+    setCategories(catsAll)
+    const dept = departmentId || deptsAll[0]?.id || ''
+    if (!departmentId && dept) setDepartmentId(dept)
+    const catIdsInDept = catsAll.filter((c) => c.department_id === dept).map((c) => c.id)
+    const active = emps.filter((e) => e.active && e.category_id && catIdsInDept.includes(e.category_id))
     setEmployees(active)
     setRequests(requestsAll)
     setHolidays(holidaysAll)
-    const sch = schedulesAll.find((s) => s.month === targetMonth) ?? null
+    const sch =
+      schedulesAll.find((s) => s.month === targetMonth && s.department_id === dept) ?? null
     setSchedule(sch)
     if (sch) {
       const allEntries = await db.scheduleEntries.list()
@@ -66,7 +80,7 @@ export default function SupervisorSchedule() {
 
   useEffect(() => {
     reload()
-  }, [targetMonth])
+  }, [targetMonth, departmentId])
 
   async function onGenerate() {
     setBusy(true)
@@ -77,6 +91,7 @@ export default function SupervisorSchedule() {
       if (!sch) {
         sch = await db.schedules.insert({
           month: targetMonth,
+          department_id: departmentId || null,
           status: 'draft',
           created_at: new Date().toISOString(),
         })
@@ -105,14 +120,17 @@ export default function SupervisorSchedule() {
       const settings = await db.settings.get()
       // Match any approved request whose date range overlaps the schedule
       // month. Lets supervisor-loaded items (annual calendar) and multi-month
-      // vacations apply to every month they touch.
+      // vacations apply to every month they touch. Restricted to the current
+      // department's employees only.
       const monthStart = targetMonth
       const monthEnd = toISO(new Date(fromISO(targetMonth).getFullYear(), fromISO(targetMonth).getMonth() + 1, 0))
+      const empIds = new Set(employees.map((e) => e.id))
       const result = generateSchedule({
         monthISO: targetMonth,
         employees,
         approvedRequests: requests.filter(
           (r) =>
+            empIds.has(r.employee_id) &&
             r.status === 'approved' &&
             r.start_date <= monthEnd &&
             r.end_date >= monthStart,
@@ -258,11 +276,19 @@ export default function SupervisorSchedule() {
     <section>
       <header className="section-head">
         <h1>Cronograma</h1>
-        <input
-          type="month"
-          value={targetMonth.slice(0, 7)}
-          onChange={(e) => setTargetMonth(`${e.target.value}-01`)}
-        />
+        <div className="actions">
+          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+            {departments.length === 0 && <option value="">— sin departamentos —</option>}
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+          <input
+            type="month"
+            value={targetMonth.slice(0, 7)}
+            onChange={(e) => setTargetMonth(`${e.target.value}-01`)}
+          />
+        </div>
       </header>
 
       <div className="actions sticky">
@@ -323,9 +349,19 @@ export default function SupervisorSchedule() {
                 </tr>
               </thead>
               <tbody>
-                {employees.map((e) => (
+                {[...employees].sort((a, b) => {
+                  const ca = categories.find((c) => c.id === a.category_id)?.name ?? ''
+                  const cb = categories.find((c) => c.id === b.category_id)?.name ?? ''
+                  if (ca !== cb) return ca.localeCompare(cb)
+                  return a.full_name.localeCompare(b.full_name)
+                }).map((e) => (
                   <tr key={e.id}>
-                    <td className="sticky-col">{e.full_name}</td>
+                    <td className="sticky-col">
+                      <div>{e.full_name}</div>
+                      <div className="muted small">
+                        {categories.find((c) => c.id === e.category_id)?.name ?? '—'}
+                      </div>
+                    </td>
                     {days.map((d) => {
                       const dISO = toISO(d)
                       const entry = entryMap.get(`${e.id}|${dISO}`)

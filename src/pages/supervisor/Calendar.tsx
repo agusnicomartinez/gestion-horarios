@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { db } from '../../lib/db'
-import type { DayRequest, Employee, RequestType } from '../../types/database'
+import type { Category, DayRequest, Department, Employee, RequestType } from '../../types/database'
 import { eachDayInMonth, fromISO, toISO } from '../../lib/dates'
 import { addDays, format } from 'date-fns'
 
@@ -24,7 +24,10 @@ function typeShort(t: RequestType): string {
 type ViewMode = 'single' | 'all'
 
 export default function Calendar() {
-  const [employees, setEmployees] = useState<Employee[]>([])
+  const [allEmployees, setAllEmployees] = useState<Employee[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [departmentId, setDepartmentId] = useState<string>('')
   const [employeeId, setEmployeeId] = useState<string | null>(null)
   const [view, setView] = useState<ViewMode>('single')
   const [year, setYear] = useState(new Date().getFullYear())
@@ -34,10 +37,31 @@ export default function Calendar() {
 
   async function reload() {
     const emps = (await db.employees.list()).filter((e) => e.active)
-    setEmployees(emps)
-    if (!employeeId && emps.length > 0) setEmployeeId(emps[0].id)
+    setAllEmployees(emps)
+    const ds = await db.departments.list()
+    const cs = await db.categories.list()
+    setDepartments(ds)
+    setCategories(cs)
+    if (!departmentId && ds.length > 0) setDepartmentId(ds[0].id)
     setRequests(await db.dayRequests.list())
   }
+
+  const employees = useMemo(() => {
+    if (!departmentId) return [] as Employee[]
+    const catIds = new Set(categories.filter((c) => c.department_id === departmentId).map((c) => c.id))
+    return allEmployees.filter((e) => e.category_id && catIds.has(e.category_id))
+  }, [allEmployees, categories, departmentId])
+
+  // Reset employeeId when employees set changes (e.g., switched dept)
+  useEffect(() => {
+    if (employees.length === 0) {
+      setEmployeeId(null)
+      return
+    }
+    if (!employeeId || !employees.some((e) => e.id === employeeId)) {
+      setEmployeeId(employees[0].id)
+    }
+  }, [employees])
 
   useEffect(() => {
     reload()
@@ -163,6 +187,12 @@ export default function Calendar() {
       <header className="section-head">
         <h1>Calendario anual</h1>
         <div className="actions">
+          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+            {departments.length === 0 && <option value="">— sin departamentos —</option>}
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
           <input
             type="number"
             min={2024}
