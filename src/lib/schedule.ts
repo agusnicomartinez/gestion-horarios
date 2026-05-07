@@ -50,6 +50,7 @@ import { format } from 'date-fns'
 const MIN_STRETCH = 4
 const MAX_STRETCH = 7
 const IDEAL_MAX_STRETCH = 6
+const MAX_STRETCH_AFTER_FULL = 5
 const MIN_REST = 2
 const PREFERRED_MAX_REST = 3
 const MAX_REST = 3
@@ -190,10 +191,10 @@ function maxRestFor(s: Stats): number {
 
 function tier(s: Stats): number {
   if (s.stretchDay >= MAX_STRETCH) return 5
-  // Avoid back-to-back 7-day stretches: if the previous stretch was the
-  // 7-day max, cap this one at 6 days (forcing rest before stretchDay
-  // would become 7).
-  if (s.stretchDay >= IDEAL_MAX_STRETCH && s.lastStretchLength >= MAX_STRETCH) {
+  // After a 7-day stretch, the next stretch is capped at 5 days (ideal
+  // recovery — the user wants the technician to take a lighter cycle
+  // before the next full one).
+  if (s.stretchDay >= MAX_STRETCH_AFTER_FULL && s.lastStretchLength >= MAX_STRETCH) {
     return 5
   }
   if (s.stretchDay >= 1) {
@@ -332,9 +333,9 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     if (!shiftAllowed(e, shift)) return false
     const s = stats.get(e.id)!
     if (s.stretchDay >= MAX_STRETCH) return false
-    // No back-to-back 7-day stretches: if the previous stretch was the
-    // 7-day max, cap this one at 6 days.
-    if (s.stretchDay >= IDEAL_MAX_STRETCH && s.lastStretchLength >= MAX_STRETCH) {
+    // After a 7-day stretch, cap the next one at 5 days (lighter
+    // recovery cycle).
+    if (s.stretchDay >= MAX_STRETCH_AFTER_FULL && s.lastStretchLength >= MAX_STRETCH) {
       return false
     }
     if (shift === 'morning' && s.lastShift === 'afternoon') return false
