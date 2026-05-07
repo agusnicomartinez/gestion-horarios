@@ -190,6 +190,12 @@ function maxRestFor(s: Stats): number {
 
 function tier(s: Stats): number {
   if (s.stretchDay >= MAX_STRETCH) return 5
+  // Avoid back-to-back 7-day stretches: if the previous stretch was the
+  // 7-day max, cap this one at 6 days (forcing rest before stretchDay
+  // would become 7).
+  if (s.stretchDay >= IDEAL_MAX_STRETCH && s.lastStretchLength >= MAX_STRETCH) {
+    return 5
+  }
   if (s.stretchDay >= 1) {
     if (s.stretchDay < MIN_STRETCH) return 0
     if (s.stretchDay < IDEAL_MAX_STRETCH) return 1
@@ -326,6 +332,11 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     if (!shiftAllowed(e, shift)) return false
     const s = stats.get(e.id)!
     if (s.stretchDay >= MAX_STRETCH) return false
+    // No back-to-back 7-day stretches: if the previous stretch was the
+    // 7-day max, cap this one at 6 days.
+    if (s.stretchDay >= IDEAL_MAX_STRETCH && s.lastStretchLength >= MAX_STRETCH) {
+      return false
+    }
     if (shift === 'morning' && s.lastShift === 'afternoon') return false
     if (s.stretchDay >= 1) return true
     if (s.consecutiveOff < minRestFor(s)) return false
