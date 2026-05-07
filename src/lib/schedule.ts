@@ -388,20 +388,30 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       })
     }
 
-    // Morning: at least 1, plus any tier-0 forced employees who can still
-    // do morning. Loop is post-condition: pick best, then check if a tier-0
-    // is still pending. This way the first pick (often a continuity mid-stretch
-    // at tier 1) doesn't displace tier-0 forced employees who would otherwise
-    // over-rest.
+    // Morning: at least 1, plus any employee who *should* work today but
+    // hasn't been placed yet. With 4 employees and a single afternoon
+    // specialist, the math forces some excess; growing morning is the
+    // intended escape valve (per spec: "el supervisor puede agregar más
+    // de 1 persona al turno mañana según demanda"). Includes:
+    //   - tier 0 forced fresh (rest at preferred max)
+    //   - tier 1 mid-stretch (would otherwise be dropped from slot and
+    //     end up resting more than the cap before being eligible again)
     const baseMorning = input.morningSlotsPerDay?.[dISO] ?? 1
     let placedMorning = 0
     while (true) {
-      const tier0Pending = input.employees.some((e) => {
+      const pending = input.employees.some((e) => {
         if (dailyAssignment.has(e.id)) return false
-        if (tier(stats.get(e.id)!) !== 0) return false
+        const s = stats.get(e.id)!
+        const t = tier(s)
+        if (t >= 5) return false
+        // Include tier 0 (forced), tier 1 (mid 4-5), tier 3 (mid 6 — extending
+        // to 7 max and triggering the mandatory 3-day rest is preferable to
+        // ending at 6 and risking a longer-than-3 rest gap before the next
+        // approved off allows a restart). Excludes tier 2 (fresh optional).
+        if (t === 2) return false
         return isShiftEligible(e, 'morning', dailyAssignment, dISO)
       })
-      if (placedMorning >= baseMorning && !tier0Pending) break
+      if (placedMorning >= baseMorning && !pending) break
       const morningId = pickShiftWorker('morning', dailyAssignment, dISO)
       if (!morningId) break
       dailyAssignment.set(morningId, 'morning')
