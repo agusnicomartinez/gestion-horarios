@@ -175,7 +175,7 @@ export default function Calendar() {
               Ver todos
             </button>
           </div>
-          {view === 'single' && employeeId && <button onClick={onAddRange}>+ Rango</button>}
+          {view === 'single' && employeeId && <button onClick={onAddRange}>+ Nueva solicitud</button>}
         </div>
       </header>
 
