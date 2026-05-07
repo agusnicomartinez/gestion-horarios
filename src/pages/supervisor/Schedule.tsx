@@ -103,11 +103,19 @@ export default function SupervisorSchedule() {
       )
 
       const settings = await db.settings.get()
+      // Match any approved request whose date range overlaps the schedule
+      // month. Lets supervisor-loaded items (annual calendar) and multi-month
+      // vacations apply to every month they touch.
+      const monthStart = targetMonth
+      const monthEnd = toISO(new Date(fromISO(targetMonth).getFullYear(), fromISO(targetMonth).getMonth() + 1, 0))
       const result = generateSchedule({
         monthISO: targetMonth,
         employees,
         approvedRequests: requests.filter(
-          (r) => r.target_month === targetMonth && r.status === 'approved',
+          (r) =>
+            r.status === 'approved' &&
+            r.start_date <= monthEnd &&
+            r.end_date >= monthStart,
         ),
         holidays,
         carryOver: carryOverFromEntries(prevEntries, targetMonth),

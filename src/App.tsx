@@ -10,6 +10,7 @@ import Employees from './pages/supervisor/Employees'
 import Settings from './pages/supervisor/Settings'
 import Requests from './pages/supervisor/Requests'
 import SupervisorSchedule from './pages/supervisor/Schedule'
+import Calendar from './pages/supervisor/Calendar'
 import EmployeeRequest from './pages/employee/Request'
 import MySchedule from './pages/employee/MySchedule'
 
@@ -46,6 +47,7 @@ function App() {
             <Route path="/supervisor/employees" element={<Employees />} />
             <Route path="/supervisor/settings" element={<Settings />} />
             <Route path="/supervisor/requests" element={<Requests />} />
+            <Route path="/supervisor/calendar" element={<Calendar />} />
             <Route path="*" element={<Navigate to="/supervisor" replace />} />
           </Route>
         ) : (
