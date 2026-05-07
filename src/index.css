@@ -309,6 +309,8 @@ h2 { font-size: 1.15rem; margin: 0 0 0.5rem; }
 .shift-holiday select { color: #be185d; font-weight: 600; }
 .shift-personal { background: rgba(168, 85, 247, 0.18); }
 .shift-personal select { color: #7c3aed; font-weight: 600; }
+.shift-sick { background: rgba(239, 68, 68, 0.2); }
+.shift-sick select { color: #dc2626; font-weight: 700; }
 .shift-cell.today { box-shadow: inset 0 0 0 2px var(--primary); }
 
 /* ============== EMPLOYEE WEEK VIEW ============== */

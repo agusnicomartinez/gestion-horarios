@@ -23,8 +23,14 @@ function shiftTitle(s: Shift): string {
     case 'vacation': return 'Vacaciones'
     case 'holiday': return 'Festivo'
     case 'personal': return 'Personal'
+    case 'sick': return 'Baja médica'
     default: return 'Libre'
   }
+}
+
+function shiftAllowedFor(emp: Employee, shift: 'morning' | 'afternoon'): boolean {
+  if (emp.shift_type === 'both') return true
+  return emp.shift_type === shift
 }
 
 export default function SupervisorSchedule() {
@@ -151,6 +157,7 @@ export default function SupervisorSchedule() {
   async function onCellChange(employeeId: string, date: string, shift: Shift) {
     if (!schedule) return
     const existing = entries.find((e) => e.employee_id === employeeId && e.date === date)
+    const previousShift: Shift = existing?.shift ?? 'off'
     if (existing) {
       await db.scheduleEntries.update(existing.id, { shift, source: 'manual' })
     } else {
@@ -161,6 +168,55 @@ export default function SupervisorSchedule() {
         shift,
         source: 'manual',
       })
+    }
+
+    // Auto-cover when marking sick on a previously-working cell that has
+    // no other coverage that day for the same shift.
+    if (
+      shift === 'sick' &&
+      (previousShift === 'morning' || previousShift === 'afternoon')
+    ) {
+      const sameShiftOthers = entries.filter(
+        (e) => e.date === date && e.employee_id !== employeeId && e.shift === previousShift,
+      )
+      if (sameShiftOthers.length === 0) {
+        const dayEntries = entries.filter((e) => e.date === date)
+        const replacement = employees.find((emp) => {
+          if (emp.id === employeeId) return false
+          if (!shiftAllowedFor(emp, previousShift)) return false
+          const myEntry = dayEntries.find((de) => de.employee_id === emp.id)
+          if (!myEntry) return true
+          // Only replace someone who was off — don't override another shift,
+          // vacation, holiday, personal, or another sick.
+          return myEntry.shift === 'off'
+        })
+        if (replacement) {
+          const repEntry = entries.find(
+            (e) => e.employee_id === replacement.id && e.date === date,
+          )
+          if (repEntry) {
+            await db.scheduleEntries.update(repEntry.id, {
+              shift: previousShift,
+              source: 'manual',
+            })
+          } else {
+            await db.scheduleEntries.insert({
+              schedule_id: schedule.id,
+              employee_id: replacement.id,
+              date,
+              shift: previousShift,
+              source: 'manual',
+            })
+          }
+          alert(
+            `Turno de ${previousShift === 'morning' ? 'mañana' : 'tarde'} cubierto por ${replacement.full_name}`,
+          )
+        } else {
+          alert(
+            `Sin reemplazo disponible para el turno de ${previousShift === 'morning' ? 'mañana' : 'tarde'} del ${date} — asignalo a mano.`,
+          )
+        }
+      }
     }
     reload()
   }
@@ -257,6 +313,7 @@ export default function SupervisorSchedule() {
                             <option value="vacation">V</option>
                             <option value="holiday">F</option>
                             <option value="personal">P</option>
+                            <option value="sick">B</option>
                           </select>
                         </td>
                       )

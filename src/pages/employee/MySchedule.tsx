@@ -164,6 +164,7 @@ function labelShift(s: Shift): string {
     case 'vacation': return 'Vacaciones'
     case 'holiday': return 'Festivo'
     case 'personal': return 'Personal'
+    case 'sick': return 'Baja médica'
     default: return 'Libre'
   }
 }
@@ -174,6 +175,7 @@ function shortShift(s: Shift): string {
     case 'vacation': return 'V'
     case 'holiday': return 'F'
     case 'personal': return 'P'
+    case 'sick': return 'B'
     default: return 'L'
   }
 }
