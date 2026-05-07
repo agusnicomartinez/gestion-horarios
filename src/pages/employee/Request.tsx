@@ -123,7 +123,7 @@ export default function EmployeeRequest() {
         <h2>Nueva solicitud</h2>
         {!win.open ? (
           <p className="muted">
-            Ventana cerrada. Se abre el día 10 a las 00:00 y se cierra el 12 a las 00:00 (mes que viene: {win.targetMonth.slice(0, 7)}).
+            Ventana cerrada. Se abre el día 1 a las 00:00 y se cierra el 11 a las 00:00 (último día válido es el 10). Mes objetivo: {win.targetMonth.slice(0, 7)}.
           </p>
         ) : (
           <form className="form" onSubmit={onSubmit}>

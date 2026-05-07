@@ -80,9 +80,10 @@ export {
 }
 
 /**
- * Request window: employees can submit from day 10 00:00 to day 12 00:00 of each
- * month for the FOLLOWING month. The server-truth-less version (localStorage v0)
- * uses the client clock — fine for a single-device app.
+ * Request window: employees can submit from day 1 00:00 through day 10
+ * (inclusive — closes day 11 00:00) of each month for the FOLLOWING month.
+ * The server-truth-less version (localStorage v0) uses the client clock —
+ * fine for a single-device app.
  */
 export interface WindowState {
   open: boolean
@@ -95,8 +96,8 @@ export interface WindowState {
 export function requestWindow(now: Date = new Date()): WindowState {
   const y = now.getFullYear()
   const m = now.getMonth()
-  const opensAt = new Date(y, m, 10, 0, 0, 0)
-  const closesAt = new Date(y, m, 12, 0, 0, 0)
+  const opensAt = new Date(y, m, 1, 0, 0, 0)
+  const closesAt = new Date(y, m, 11, 0, 0, 0)
   const targetMonth = monthKey(new Date(y, m + 1, 1))
   if (now < opensAt) return { open: false, targetMonth, opensAt, closesAt, reason: 'before' }
   if (now >= closesAt) return { open: false, targetMonth, opensAt, closesAt, reason: 'after' }

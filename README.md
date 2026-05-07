@@ -114,8 +114,8 @@ docs/
 
 | Fecha | Evento |
 |---|---|
-| Día 10 00:00 | Se abre ventana de solicitudes |
-| Día 12 00:00 | Cierre de solicitudes + generación automática |
+| Día 1 00:00 | Se abre ventana de solicitudes |
+| Día 11 00:00 | Cierre de solicitudes (último día válido para enviar = día 10) + generación automática |
 | Día 12 00:00 → 15 00:00 | Supervisor revisa y ajusta |
 | Día 15 00:00 | Cronograma publicado |
 
