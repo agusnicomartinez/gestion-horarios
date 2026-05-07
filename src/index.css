@@ -355,6 +355,36 @@ h2 { font-size: 1.15rem; margin: 0 0 0.5rem; }
 .coverage-grid label span { text-align: center; }
 .coverage-grid input { padding: 0.3rem; text-align: center; }
 
+.bounds-table {
+  border-collapse: collapse;
+  margin-top: 0.4rem;
+  width: 100%;
+  max-width: 280px;
+}
+.bounds-table th {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 0.2rem 0.5rem;
+  text-align: center;
+}
+.bounds-table td {
+  padding: 0.2rem 0.3rem;
+}
+.bounds-table .bounds-label {
+  font-size: 0.85rem;
+  color: var(--text);
+  padding-right: 0.5rem;
+  white-space: nowrap;
+}
+.bounds-table input {
+  padding: 0.3rem;
+  text-align: center;
+  width: 100%;
+  min-width: 56px;
+}
+
 .shift-checkboxes {
   border: 1px solid var(--border);
   border-radius: 8px;

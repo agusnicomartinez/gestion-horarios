@@ -67,18 +67,28 @@ export interface GenerateInput {
   /** Total días libres regulares al año por empleado (presupuesto). */
   restDaysPerYear?: number
   /**
-   * Daily minimum coverage per shift. Defaults to {1, 1, 0, 0}.
-   * Morning grows beyond its minimum to absorb tier-0 forced employees
-   * (per spec); the others are strict.
+   * Daily coverage per shift, expressed as { min, max } where max=null
+   * means no upper bound (the algorithm grows the slot to absorb tier-0
+   * forced employees).
    */
-  coverage?: { morning: number; afternoon: number; night: number; partido: number }
+  coverage?: {
+    morning: { min: number; max: number | null }
+    afternoon: { min: number; max: number | null }
+    night: { min: number; max: number | null }
+    partido: { min: number; max: number | null }
+  }
   /**
    * Per-day overrides for the category coverage (occupancy peaks). Each
-   * override replaces the category default for the days it covers, with
-   * optional min and/or max. The min becomes the new daily minimum, and
-   * max caps morning growth (other shifts stay strict at min).
+   * override replaces the category default for the days it covers.
    */
   coverageOverrides?: CoverageOverride[]
+}
+
+const DEFAULT_COVERAGE = {
+  morning: { min: 1, max: null as number | null },
+  afternoon: { min: 1, max: 1 as number | null },
+  night: { min: 0, max: 0 as number | null },
+  partido: { min: 0, max: 0 as number | null },
 }
 
 export interface GenerateOutput {
@@ -474,7 +484,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       }
     }
 
-    const cov = input.coverage ?? { morning: 1, afternoon: 1, night: 0, partido: 0 }
+    const cov = input.coverage ?? DEFAULT_COVERAGE
     const effective = (shift: 'morning' | 'afternoon' | 'night' | 'partido'): {
       min: number
       max: number | null
@@ -482,35 +492,59 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       const o = (input.coverageOverrides ?? []).find(
         (x) => x.shift === shift && dISO >= x.start_date && dISO <= x.end_date,
       )
-      const baseMin = cov[shift]
-      const min = o && o.min !== null && o.min !== undefined ? o.min : baseMin
-      const max = o && o.max !== null && o.max !== undefined ? o.max : null
+      const base = cov[shift]
+      const min = o && o.min !== null && o.min !== undefined ? o.min : base.min
+      const max =
+        o && o.max !== undefined ? o.max : base.max
       return { min, max }
     }
 
-    // Strict-count shifts: afternoon, night, partido. Pick exactly `min` workers
-    // (or up to `max` if set higher than min, treated like morning growth below).
-    const strictShifts: ('afternoon' | 'night' | 'partido')[] = ['afternoon', 'night', 'partido']
-    for (const shift of strictShifts) {
+    // Pick afternoon / night / partido first — these are typically more
+    // constrained (only specific employees can do them). Each shift's
+    // bounds (min, max) come from the category's coverage, possibly
+    // overridden by a Pico de Demanda for this date.
+    //
+    // Placement rule: place at least `min` workers; keep adding if any
+    // tier-0/1/3 employee is still pending and we haven't hit `max`. A
+    // null max means no upper bound (used for morning by default).
+    const placeFor = (shift: 'morning' | 'afternoon' | 'night' | 'partido') => {
       const eff = effective(shift)
-      const target = eff.max !== null ? Math.max(eff.min, eff.max) : eff.min
-      if (target <= 0) continue
+      if (eff.min <= 0 && eff.max === 0) return
       let placed = 0
-      for (let i = 0; i < target; i++) {
+      const cap = eff.max
+      while (true) {
+        if (cap !== null && placed >= cap) break
+        const pending = input.employees.some((e) => {
+          if (dailyAssignment.has(e.id)) return false
+          const s = stats.get(e.id)!
+          const t = tier(s)
+          if (t >= 5) return false
+          if (t === 2) return false
+          return isShiftEligible(e, shift, dailyAssignment, dISO)
+        })
+        if (placed >= eff.min && !pending) break
         const id = pickShiftWorker(shift, dailyAssignment, dISO)
         if (!id) break
         dailyAssignment.set(id, shift)
         placed++
       }
       if (placed < eff.min) {
-        const labelMap = { afternoon: 'tarde', night: 'noche', partido: 'partido' } as const
+        const labelMap = {
+          morning: 'mañana',
+          afternoon: 'tarde',
+          night: 'noche',
+          partido: 'partido',
+        } as const
         violations.push({
           date: dISO,
-          kind: shift === 'afternoon' ? 'no-afternoon-coverage' : 'no-morning-coverage',
+          kind: shift === 'morning' ? 'no-morning-coverage' : 'no-afternoon-coverage',
           detail: `Cobertura insuficiente de ${labelMap[shift]} el ${dISO} (${placed}/${eff.min})`,
         })
       }
     }
+    placeFor('afternoon')
+    placeFor('night')
+    placeFor('partido')
 
     // Morning: at least 1, plus any employee who *should* work today but
     // hasn't been placed yet. With 4 employees and a single afternoon
@@ -520,33 +554,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     //   - tier 0 forced fresh (rest at preferred max)
     //   - tier 1 mid-stretch (would otherwise be dropped from slot and
     //     end up resting more than the cap before being eligible again)
-    const morningEff = effective('morning')
-    const baseMorning = input.morningSlotsPerDay?.[dISO] ?? morningEff.min
-    const morningCap = morningEff.max
-    let placedMorning = 0
-    while (true) {
-      if (morningCap !== null && placedMorning >= morningCap) break
-      const pending = input.employees.some((e) => {
-        if (dailyAssignment.has(e.id)) return false
-        const s = stats.get(e.id)!
-        const t = tier(s)
-        if (t >= 5) return false
-        if (t === 2) return false
-        return isShiftEligible(e, 'morning', dailyAssignment, dISO)
-      })
-      if (placedMorning >= baseMorning && !pending) break
-      const morningId = pickShiftWorker('morning', dailyAssignment, dISO)
-      if (!morningId) break
-      dailyAssignment.set(morningId, 'morning')
-      placedMorning++
-    }
-    if (placedMorning < morningEff.min) {
-      violations.push({
-        date: dISO,
-        kind: 'no-morning-coverage',
-        detail: `Cobertura insuficiente de mañana el ${dISO} (${placedMorning}/${morningEff.min})`,
-      })
-    }
+    placeFor('morning')
 
     for (const e of input.employees) {
       const final: Shift = dailyAssignment.get(e.id) ?? 'off'

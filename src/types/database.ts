@@ -24,19 +24,21 @@ export interface CoverageOverride {
   created_at: string
 }
 
+export interface ShiftBounds {
+  min: number
+  /** null = sin tope (puede crecer si hay empleados forzados). */
+  max: number | null
+}
+
 export interface Category {
   id: string
   department_id: string
   name: string
-  /**
-   * Minimum daily coverage per shift. v0 only writes morning/afternoon.
-   * Phase B will add night/partido and make these configurable.
-   */
   coverage: {
-    morning: number
-    afternoon: number
-    night: number
-    partido: number
+    morning: ShiftBounds
+    afternoon: ShiftBounds
+    night: ShiftBounds
+    partido: ShiftBounds
   }
   created_at: string
 }

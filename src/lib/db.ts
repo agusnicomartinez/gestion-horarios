@@ -175,6 +175,40 @@ function shiftTypeToShifts(t: string | undefined): ('morning' | 'afternoon' | 'n
   }
 }
 
+type LegacyShiftBounds = number | { min?: number; max?: number | null }
+
+function normaliseBound(v: LegacyShiftBounds | undefined, growable: boolean): { min: number; max: number | null } {
+  if (v && typeof v === 'object') {
+    return {
+      min: v.min ?? 0,
+      max: v.max === undefined ? (growable ? null : v.min ?? 0) : v.max,
+    }
+  }
+  const n = typeof v === 'number' ? v : 0
+  return { min: n, max: growable ? null : n }
+}
+
+function normaliseCoverage(raw: unknown): Category['coverage'] {
+  const cov = (raw ?? {}) as Record<string, LegacyShiftBounds | undefined>
+  return {
+    morning: normaliseBound(cov.morning, true),
+    afternoon: normaliseBound(cov.afternoon, false),
+    night: normaliseBound(cov.night, false),
+    partido: normaliseBound(cov.partido, false),
+  }
+}
+
+function isLegacyCoverage(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return true
+  const cov = raw as Record<string, unknown>
+  for (const key of ['morning', 'afternoon', 'night', 'partido']) {
+    const v = cov[key]
+    if (typeof v === 'number') return true
+    if (!v || typeof v !== 'object') return true
+  }
+  return false
+}
+
 export async function runMigrations(): Promise<void> {
   const applied = read<string[]>(MIGRATIONS_KEY, [])
   const want = 'depts_categories_v1'
@@ -195,10 +229,25 @@ export async function runMigrations(): Promise<void> {
     cat = await db.categories.insert({
       department_id: dept.id,
       name: 'General',
-      coverage: { morning: 1, afternoon: 1, night: 0, partido: 0 },
+      coverage: {
+        morning: { min: 1, max: null },
+        afternoon: { min: 1, max: 1 },
+        night: { min: 0, max: 0 },
+        partido: { min: 0, max: 0 },
+      },
       created_at: new Date().toISOString(),
     })
     cats = [cat]
+  }
+
+  // Migrate any category whose coverage is still in the legacy number-based
+  // shape to { min, max } per shift. Morning gets max=null (current grow
+  // behaviour); the rest get max=min (current strict behaviour).
+  const allCats = await db.categories.list()
+  for (const c of allCats) {
+    if (isLegacyCoverage(c.coverage)) {
+      await db.categories.update(c.id, { coverage: normaliseCoverage(c.coverage) })
+    }
   }
 
   const employees = await db.employees.list()

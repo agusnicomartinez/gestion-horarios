@@ -72,7 +72,12 @@ export default function Settings() {
     await db.categories.insert({
       department_id: newCatDept,
       name: newCatName.trim(),
-      coverage: { morning: 1, afternoon: 1, night: 0, partido: 0 },
+      coverage: {
+        morning: { min: 1, max: null },
+        afternoon: { min: 1, max: 1 },
+        night: { min: 0, max: 0 },
+        partido: { min: 0, max: 0 },
+      },
       created_at: new Date().toISOString(),
     })
     setNewCatName('')
@@ -98,10 +103,26 @@ export default function Settings() {
     reload()
   }
 
-  async function onUpdateCoverage(c: Category, field: keyof Category['coverage'], value: number) {
-    const next = Math.max(0, Math.floor(value))
+  async function onUpdateCoverage(
+    c: Category,
+    field: keyof Category['coverage'],
+    bound: 'min' | 'max',
+    value: string,
+  ) {
+    const trimmed = value.trim()
+    let nextValue: number | null
+    if (bound === 'max' && trimmed === '') {
+      nextValue = null
+    } else {
+      const n = Number(trimmed)
+      if (Number.isNaN(n)) return
+      nextValue = Math.max(0, Math.floor(n))
+    }
     await db.categories.update(c.id, {
-      coverage: { ...c.coverage, [field]: next },
+      coverage: {
+        ...c.coverage,
+        [field]: { ...c.coverage[field], [bound]: nextValue },
+      },
     })
     reload()
   }
@@ -220,34 +241,60 @@ export default function Settings() {
           {categories.length === 0 && <li className="muted">Sin categorías.</li>}
           {categories.map((c) => {
             const dept = departments.find((d) => d.id === c.department_id)
-            const cov = c.coverage ?? { morning: 1, afternoon: 1, night: 0, partido: 0 }
+            const cov = c.coverage ?? {
+              morning: { min: 1, max: null },
+              afternoon: { min: 1, max: 1 },
+              night: { min: 0, max: 0 },
+              partido: { min: 0, max: 0 },
+            }
+            const SHIFTS: { key: keyof typeof cov; label: string }[] = [
+              { key: 'morning', label: 'Mañana' },
+              { key: 'afternoon', label: 'Tarde' },
+              { key: 'night', label: 'Noche' },
+              { key: 'partido', label: 'Partido' },
+            ]
             return (
               <li key={c.id} className="row category-row">
                 <div className="grow">
                   <strong>{c.name}</strong>
                   <div className="muted small">Departamento: {dept?.name ?? '—'}</div>
-                  <div className="coverage-grid">
-                    <label>
-                      <span>M</span>
-                      <input type="number" min={0} value={cov.morning}
-                        onChange={(e) => onUpdateCoverage(c, 'morning', +e.target.value)} />
-                    </label>
-                    <label>
-                      <span>T</span>
-                      <input type="number" min={0} value={cov.afternoon}
-                        onChange={(e) => onUpdateCoverage(c, 'afternoon', +e.target.value)} />
-                    </label>
-                    <label>
-                      <span>N</span>
-                      <input type="number" min={0} value={cov.night}
-                        onChange={(e) => onUpdateCoverage(c, 'night', +e.target.value)} />
-                    </label>
-                    <label>
-                      <span>P</span>
-                      <input type="number" min={0} value={cov.partido}
-                        onChange={(e) => onUpdateCoverage(c, 'partido', +e.target.value)} />
-                    </label>
-                  </div>
+                  <table className="bounds-table">
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th>Mín</th>
+                        <th>Máx</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {SHIFTS.map((s) => {
+                        const b = cov[s.key]
+                        return (
+                          <tr key={s.key}>
+                            <td className="bounds-label">{s.label}</td>
+                            <td>
+                              <input
+                                type="number"
+                                min={0}
+                                value={b.min}
+                                onChange={(e) => onUpdateCoverage(c, s.key, 'min', e.target.value)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                min={0}
+                                value={b.max ?? ''}
+                                placeholder="—"
+                                onChange={(e) => onUpdateCoverage(c, s.key, 'max', e.target.value)}
+                              />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                  <div className="muted small">Máx vacío = sin tope (puede crecer si hay empleados forzados).</div>
                 </div>
                 <div className="actions">
                   <button className="link" onClick={() => onRenameCat(c)}>Renombrar</button>
