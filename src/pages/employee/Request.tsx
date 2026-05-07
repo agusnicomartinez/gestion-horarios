@@ -176,7 +176,12 @@ export default function EmployeeRequest() {
 }
 
 function labelType(t: RequestType): string {
-  return t === 'vacation' ? 'Vacaciones' : t === 'personal' ? 'Personal' : 'Festivo'
+  switch (t) {
+    case 'vacation': return 'Vacaciones'
+    case 'personal': return 'Personal'
+    case 'holiday': return 'Festivo'
+    case 'sick': return 'Baja médica'
+  }
 }
 
 function labelStatus(s: string): string {

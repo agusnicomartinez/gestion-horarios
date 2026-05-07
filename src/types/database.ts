@@ -1,5 +1,5 @@
 export type ShiftType = 'morning' | 'afternoon' | 'both'
-export type RequestType = 'vacation' | 'personal' | 'holiday'
+export type RequestType = 'vacation' | 'personal' | 'holiday' | 'sick'
 export type RequestStatus = 'pending' | 'approved' | 'rejected'
 export type Shift = 'morning' | 'afternoon' | 'off' | 'vacation' | 'holiday' | 'personal' | 'sick'
 export type ScheduleStatus = 'draft' | 'published'

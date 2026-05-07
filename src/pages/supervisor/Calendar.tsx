@@ -12,6 +12,15 @@ interface ModalState {
   existingId?: string
 }
 
+function typeShort(t: RequestType): string {
+  switch (t) {
+    case 'vacation': return 'V'
+    case 'personal': return 'P'
+    case 'holiday': return 'F'
+    case 'sick': return 'B'
+  }
+}
+
 type ViewMode = 'single' | 'all'
 
 export default function Calendar() {
@@ -203,6 +212,7 @@ export default function Calendar() {
         <span className="legend-chip cell-vacation">V</span> Vacaciones
         <span className="legend-chip cell-personal">P</span> Personal
         <span className="legend-chip cell-holiday">F</span> Festivo
+        <span className="legend-chip cell-sick">B</span> Baja médica
       </div>
 
       {view === 'single' && employeeId && (
@@ -247,6 +257,7 @@ export default function Calendar() {
                 <option value="vacation">Vacaciones</option>
                 <option value="personal">Personal</option>
                 <option value="holiday">Festivo</option>
+                <option value="sick">Baja médica</option>
               </select>
             </label>
             <label>
@@ -340,7 +351,7 @@ function GlobalMonth({
                   const dISO = toISO(d)
                   const t = byEmpDay.get(`${e.id}|${dISO}`)
                   const cls = t ? `cell cell-${t}` : 'cell'
-                  const label = t === 'vacation' ? 'V' : t === 'personal' ? 'P' : t === 'holiday' ? 'F' : ''
+                  const label = t ? typeShort(t) : ''
                   return (
                     <td key={dISO} className={cls} onClick={() => onCellClick(e.id, dISO)}>
                       {label}
@@ -393,13 +404,7 @@ function MiniCalendar({
                 const dISO = toISO(d)
                 const cell = dayMap.get(dISO)
                 const cls = cell ? `cell cell-${cell.type}` : 'cell'
-                const label = cell
-                  ? cell.type === 'vacation'
-                    ? 'V'
-                    : cell.type === 'personal'
-                      ? 'P'
-                      : 'F'
-                  : d.getDate()
+                const label = cell ? typeShort(cell.type) : d.getDate()
                 return (
                   <td key={j} className={cls} onClick={() => onCellClick(dISO)} title={dISO}>
                     {label}

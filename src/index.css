@@ -390,9 +390,11 @@ h2 { font-size: 1.15rem; margin: 0 0 0.5rem; }
 .mini-cal td.cell-vacation { background: rgba(34, 197, 94, 0.18); color: #16a34a; font-weight: 700; }
 .mini-cal td.cell-personal { background: rgba(168, 85, 247, 0.18); color: #7c3aed; font-weight: 700; }
 .mini-cal td.cell-holiday  { background: rgba(236, 72, 153, 0.18); color: #be185d; font-weight: 700; }
+.mini-cal td.cell-sick     { background: rgba(239, 68, 68, 0.2); color: #dc2626; font-weight: 700; }
 .legend-chip.cell-vacation { background: rgba(34, 197, 94, 0.18); color: #16a34a; }
 .legend-chip.cell-personal { background: rgba(168, 85, 247, 0.18); color: #7c3aed; }
 .legend-chip.cell-holiday  { background: rgba(236, 72, 153, 0.18); color: #be185d; }
+.legend-chip.cell-sick     { background: rgba(239, 68, 68, 0.2); color: #dc2626; }
 
 /* Global view: all employees as rows for each month */
 .global-year {
@@ -444,6 +446,7 @@ h2 { font-size: 1.15rem; margin: 0 0 0.5rem; }
 .global-table td.cell-vacation { background: rgba(34, 197, 94, 0.18); color: #16a34a; font-weight: 700; }
 .global-table td.cell-personal { background: rgba(168, 85, 247, 0.18); color: #7c3aed; font-weight: 700; }
 .global-table td.cell-holiday  { background: rgba(236, 72, 153, 0.18); color: #be185d; font-weight: 700; }
+.global-table td.cell-sick     { background: rgba(239, 68, 68, 0.2); color: #dc2626; font-weight: 700; }
 
 /* ============== MODAL ============== */
 .modal-backdrop {
