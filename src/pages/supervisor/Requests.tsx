@@ -65,12 +65,14 @@ export default function Requests() {
                 </div>
                 <div className="muted small">Estado: {labelStatus(r.status)}</div>
               </div>
-              {r.status === 'pending' && (
-                <div className="actions">
+              <div className="actions">
+                {r.status !== 'approved' && (
                   <button onClick={() => decide(r, 'approved')}>Aprobar</button>
+                )}
+                {r.status !== 'rejected' && (
                   <button className="link danger" onClick={() => decide(r, 'rejected')}>Rechazar</button>
-                </div>
-              )}
+                )}
+              </div>
             </li>
           )
         })}
