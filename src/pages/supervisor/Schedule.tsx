@@ -154,6 +154,23 @@ export default function SupervisorSchedule() {
     reload()
   }
 
+  async function onClear() {
+    if (!schedule) return
+    if (!confirm(`Borrar el cronograma de ${targetMonth.slice(0, 7)}? Esta acción no se puede deshacer.`)) return
+    setBusy(true)
+    try {
+      await db.scheduleEntries.removeWhere((e) => e.schedule_id === schedule.id)
+      await db.schedules.remove(schedule.id)
+      setViolations([])
+      await reload()
+    } catch (err) {
+      console.error('Clear failed:', err)
+      alert(`Error al borrar: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function onCellChange(employeeId: string, date: string, shift: Shift) {
     if (!schedule) return
     const existing = entries.find((e) => e.employee_id === employeeId && e.date === date)
@@ -249,6 +266,11 @@ export default function SupervisorSchedule() {
         )}
         {schedule && schedule.status === 'published' && (
           <button className="link" onClick={onUnpublish}>Despublicar</button>
+        )}
+        {schedule && (
+          <button className="link danger" onClick={onClear} disabled={busy}>
+            Borrar
+          </button>
         )}
         {schedule && (
           <span className={`badge status-${schedule.status}`}>
