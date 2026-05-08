@@ -258,7 +258,7 @@ export default function SupervisorSchedule() {
           approvedRequests: catApproved,
           holidays,
           carryOver: carryOverFromEntries(prevEntries, targetMonth),
-          restDaysPerYear: settings.rest_days_per_year,
+          annualWorkHours: settings.annual_work_hours,
           coverage: cat.coverage,
           coverageOverrides: catOverrides,
         })

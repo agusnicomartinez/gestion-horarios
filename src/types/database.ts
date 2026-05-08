@@ -52,6 +52,9 @@ export interface Employee {
   shifts: WorkShift[]
   /** @deprecated kept only for migration compatibility — use `shifts` */
   shift_type?: ShiftType
+  /** Hour (0-23) at which this employee's "partido" shift starts. End time
+   *  is always start + 8h. Only relevant if `shifts` includes 'partido'. */
+  partido_start_hour: number
   active: boolean
   category_id: string | null
   created_at: string
@@ -69,7 +72,10 @@ export interface GlobalSettings {
   vacation_days_per_year: number
   personal_days_per_year: number
   holiday_days_per_year: number
-  rest_days_per_year: number
+  /** Total horas de trabajo efectivo al año por empleado (objetivo de
+   *  cómputo). Vacaciones / festivos / días personales / bajas no suman
+   *  ni restan; el objetivo mensual se ajusta proporcionalmente. */
+  annual_work_hours: number
   updated_at: string
 }
 

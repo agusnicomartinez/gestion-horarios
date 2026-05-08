@@ -86,9 +86,7 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   vacation_days_per_year: 31,
   personal_days_per_year: 3,
   holiday_days_per_year: 14,
-  // 1783 h/año / 8 h/día ≈ 223 días trabajo → 365 − 223 − 31 vac − 14 festivos
-  // ≈ 97 días libres regulares (~ 8 al mes).
-  rest_days_per_year: 97,
+  annual_work_hours: 1783,
   updated_at: new Date().toISOString(),
 }
 
@@ -213,6 +211,26 @@ export async function runMigrations(): Promise<void> {
   const applied = read<string[]>(MIGRATIONS_KEY, [])
   const want = 'depts_categories_v1'
   const wantShifts = 'employee_shifts_array_v1'
+  const wantWorkHours = 'annual_work_hours_v1'
+
+  if (!applied.includes(wantWorkHours)) {
+    // Replace rest_days_per_year with annual_work_hours = 1783.
+    const stored = read<Record<string, unknown>>('settings', {})
+    if ('rest_days_per_year' in stored) delete stored.rest_days_per_year
+    if (!('annual_work_hours' in stored)) {
+      stored.annual_work_hours = 1783
+      stored.updated_at = new Date().toISOString()
+    }
+    write('settings', stored)
+
+    // Default partido_start_hour=9 for all employees that don't have it.
+    for (const e of await db.employees.list()) {
+      const anyE = e as unknown as { partido_start_hour?: number }
+      if (typeof anyE.partido_start_hour !== 'number') {
+        await db.employees.update(e.id, { partido_start_hour: 9 } as Partial<Employee>)
+      }
+    }
+  }
 
   let depts = await db.departments.list()
   let cats = await db.categories.list()
@@ -270,5 +288,6 @@ export async function runMigrations(): Promise<void> {
   const next = new Set(applied)
   next.add(want)
   next.add(wantShifts)
+  next.add(wantWorkHours)
   write(MIGRATIONS_KEY, [...next])
 }

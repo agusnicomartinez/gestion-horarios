@@ -8,7 +8,7 @@ export default function Settings() {
   const [vacation, setVacation] = useState(0)
   const [personal, setPersonal] = useState(0)
   const [holidayDays, setHolidayDays] = useState(0)
-  const [restDays, setRestDays] = useState(0)
+  const [annualHours, setAnnualHours] = useState(0)
   const [savingSettings, setSavingSettings] = useState(false)
   const [newDate, setNewDate] = useState('')
   const [newDescription, setNewDescription] = useState('')
@@ -24,7 +24,7 @@ export default function Settings() {
     setVacation(s.vacation_days_per_year)
     setPersonal(s.personal_days_per_year)
     setHolidayDays(s.holiday_days_per_year)
-    setRestDays(s.rest_days_per_year)
+    setAnnualHours(s.annual_work_hours)
     const h = await db.publicHolidays.list()
     h.sort((a, b) => a.date.localeCompare(b.date))
     setHolidays(h)
@@ -138,7 +138,7 @@ export default function Settings() {
       vacation_days_per_year: vacation,
       personal_days_per_year: personal,
       holiday_days_per_year: holidayDays,
-      rest_days_per_year: restDays,
+      annual_work_hours: annualHours,
     })
     setSavingSettings(false)
     reload()
@@ -179,10 +179,18 @@ export default function Settings() {
           <input type="number" min={0} value={holidayDays} onChange={(e) => setHolidayDays(+e.target.value)} />
         </label>
         <label>
-          Días libres / año (descansos regulares)
-          <input type="number" min={0} value={restDays} onChange={(e) => setRestDays(+e.target.value)} />
+          Horas de trabajo / año
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={annualHours}
+            onChange={(e) => setAnnualHours(+e.target.value)}
+          />
           <span className="muted small">
-            Total días no trabajados al año por empleado. Objetivo mensual ≈ {Math.round(restDays / 12)} días.
+            Horas efectivas al año por empleado. Objetivo mensual ≈ {(annualHours / 12).toFixed(0)} h
+            (~{Math.round(annualHours / 12 / 8)} jornadas). Vacaciones, festivos, días personales y bajas
+            no suman: el objetivo del mes se ajusta proporcionalmente. Tolerancia ±16 h.
           </span>
         </label>
         <div className="actions">

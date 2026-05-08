@@ -64,8 +64,11 @@ export interface GenerateInput {
   holidays: PublicHoliday[]
   morningSlotsPerDay?: Record<string, number>
   carryOver?: Record<string, Shift[]>
-  /** Total días libres regulares al año por empleado (presupuesto). */
-  restDaysPerYear?: number
+  /** Horas de trabajo efectivo al año por empleado. El objetivo mensual
+   *  se calcula como `annualWorkHours / 12`, ajustado proporcionalmente
+   *  cuando el empleado tiene días aprobados de vacaciones / festivo /
+   *  personal / baja en el mes. */
+  annualWorkHours?: number
   /**
    * Daily coverage per shift, expressed as { min, max } where max=null
    * means no upper bound (the algorithm grows the slot to absorb tier-0
@@ -144,29 +147,40 @@ function shiftAllowed(emp: Employee, shift: Shift): boolean {
 }
 
 /**
- * Default working hours per shift used to enforce the 12-hour rest rule.
+ * Working hours for a given shift. Partido is per-employee: start hour is
+ * taken from the employee profile and end is always start + 8h.
  * `endsNextDay` means the shift's end time falls on the following calendar
  * day (e.g. night shift 23:00 → 7:00 next day).
  */
-const SHIFT_HOURS: Record<
-  'morning' | 'afternoon' | 'night' | 'partido',
-  { start: number; end: number; endsNextDay: boolean }
-> = {
-  morning: { start: 7, end: 15, endsNextDay: false },
-  afternoon: { start: 15, end: 23, endsNextDay: false },
-  night: { start: 23, end: 7, endsNextDay: true },
-  partido: { start: 9, end: 21, endsNextDay: false },
+const HOURS_PER_SHIFT = 8
+const DEFAULT_PARTIDO_START = 9
+
+function shiftHours(
+  shift: 'morning' | 'afternoon' | 'night' | 'partido',
+  partidoStart: number = DEFAULT_PARTIDO_START,
+): { start: number; end: number; endsNextDay: boolean } {
+  switch (shift) {
+    case 'morning': return { start: 7, end: 15, endsNextDay: false }
+    case 'afternoon': return { start: 15, end: 23, endsNextDay: false }
+    case 'night': return { start: 23, end: 7, endsNextDay: true }
+    case 'partido': {
+      const start = partidoStart
+      const end = (start + HOURS_PER_SHIFT) % 24
+      return { start, end, endsNextDay: start + HOURS_PER_SHIFT >= 24 }
+    }
+  }
 }
 
 function isWorkShift(s: Shift): s is 'morning' | 'afternoon' | 'night' | 'partido' {
   return s === 'morning' || s === 'afternoon' || s === 'night' || s === 'partido'
 }
 
-/** Can an employee whose previous day's shift was `prev` start `next` today? */
-function canTransition(prev: Shift, next: Shift): boolean {
+/** Can an employee whose previous day's shift was `prev` start `next` today?
+ *  `partidoStart` is the employee's configured partido start hour. */
+function canTransition(prev: Shift, next: Shift, partidoStart: number = DEFAULT_PARTIDO_START): boolean {
   if (!isWorkShift(prev) || !isWorkShift(next)) return true
-  const p = SHIFT_HOURS[prev]
-  const n = SHIFT_HOURS[next]
+  const p = shiftHours(prev, partidoStart)
+  const n = shiftHours(next, partidoStart)
   // Treat prev as occupying day D. If endsNextDay, prev finishes at hour
   // 24 + p.end. Otherwise just p.end. Next shift starts on day D+1 at
   // 24 + n.start. Gap must be ≥ 12 h.
@@ -403,7 +417,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
       return false
     }
     // 12-hour rest rule between consecutive working days.
-    if (!canTransition(s.lastShift, shift)) return false
+    if (!canTransition(s.lastShift, shift, e.partido_start_hour ?? DEFAULT_PARTIDO_START)) return false
     if (s.stretchDay >= 1) return true
     if (s.consecutiveOff < minRestFor(s)) return false
     // Forced (rest at preferred max): must work today even if upcoming
@@ -636,20 +650,35 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     }
   }
 
-  // Annual rest budget check: warn if monthly off days deviate too much
-  // from the target (rest_days_per_year / 12). Tolerance ±3 days.
-  if (input.restDaysPerYear && input.restDaysPerYear > 0) {
-    const monthlyTarget = input.restDaysPerYear / 12
+  // Annual work hours budget check: warn if monthly hours deviate from
+  // the per-employee target. Tolerance ±16h. The monthly baseline is
+  // annualWorkHours / 12. When the employee has approved off days
+  // (vacation / holiday / personal / sick) in the month, the target is
+  // reduced proportionally by (offDays / monthDays).
+  const HOURS_TOLERANCE = 16
+  if (input.annualWorkHours && input.annualWorkHours > 0) {
+    const monthlyBaseline = input.annualWorkHours / 12
+    const monthDays = days.length
     for (const e of input.employees) {
       const myEntries = entries.filter((x) => x.employee_id === e.id)
-      const offCount = myEntries.filter((x) => x.shift === 'off').length
-      const deviation = offCount - monthlyTarget
-      if (Math.abs(deviation) > 3) {
+      const workedShifts = myEntries.filter((x) => isWorkingShift(x.shift)).length
+      const workedHours = workedShifts * HOURS_PER_SHIFT
+      const offRequestDays = myEntries.filter(
+        (x) =>
+          x.shift === 'vacation' ||
+          x.shift === 'holiday' ||
+          x.shift === 'personal' ||
+          x.shift === 'sick',
+      ).length
+      const adjustedTarget =
+        monthlyBaseline * ((monthDays - offRequestDays) / monthDays)
+      const deviation = workedHours - adjustedTarget
+      if (Math.abs(deviation) > HOURS_TOLERANCE) {
         violations.push({
           date: input.monthISO,
           kind: 'budget-deviation',
           employeeId: e.id,
-          detail: `${e.full_name}: ${offCount} días libres este mes (objetivo ${monthlyTarget.toFixed(1)} ± 3, desviación ${deviation > 0 ? '+' : ''}${deviation.toFixed(0)})`,
+          detail: `${e.full_name}: ${workedHours} h este mes (objetivo ${adjustedTarget.toFixed(0)} h ± ${HOURS_TOLERANCE}, desviación ${deviation > 0 ? '+' : ''}${deviation.toFixed(0)} h)`,
         })
       }
     }

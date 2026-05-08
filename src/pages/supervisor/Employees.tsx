@@ -134,6 +134,9 @@ function EmployeeForm({
   const [shifts, setShifts] = useState<WorkShift[]>(
     initial?.shifts ?? ['morning', 'afternoon'],
   )
+  const [partidoStart, setPartidoStart] = useState<number>(
+    initial?.partido_start_hour ?? 9,
+  )
   const [active, setActive] = useState(initial?.active ?? true)
   const [categoryId, setCategoryId] = useState<string>(
     initial?.category_id ?? categories[0]?.id ?? '',
@@ -162,6 +165,16 @@ function EmployeeForm({
       setError('Tildá al menos un turno que pueda hacer')
       return
     }
+    if (shifts.includes('partido')) {
+      if (
+        !Number.isInteger(partidoStart) ||
+        partidoStart < 0 ||
+        partidoStart > 23
+      ) {
+        setError('La hora de entrada del partido tiene que ser un número entre 0 y 23')
+        return
+      }
+    }
     setBusy(true)
     try {
       if (initial) {
@@ -169,6 +182,7 @@ function EmployeeForm({
           dni: dni.trim().toUpperCase(),
           full_name: name.trim(),
           shifts,
+          partido_start_hour: partidoStart,
           active,
           category_id: categoryId,
         })
@@ -183,6 +197,7 @@ function EmployeeForm({
           dni: dni.trim().toUpperCase(),
           full_name: name.trim(),
           shifts,
+          partido_start_hour: partidoStart,
           active,
           category_id: categoryId,
           created_at: new Date().toISOString(),
@@ -226,6 +241,23 @@ function EmployeeForm({
           </label>
         ))}
       </fieldset>
+      {shifts.includes('partido') && (
+        <label>
+          Hora de entrada del partido
+          <input
+            type="number"
+            min={0}
+            max={23}
+            step={1}
+            value={partidoStart}
+            onChange={(e) => setPartidoStart(+e.target.value)}
+          />
+          <span className="muted small">
+            La salida es siempre {((partidoStart + 8) % 24).toString().padStart(2, '0')}:00
+            (entrada + 8 h).
+          </span>
+        </label>
+      )}
       <label className="check">
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Activo
       </label>
