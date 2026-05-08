@@ -48,13 +48,18 @@ import { format } from 'date-fns'
  *   5  blocked (mid-stretch 7+ or rest below min)
  */
 
-const MIN_STRETCH = 4
+// Ciclos: ideal 5-6 días seguidos, máximo 7. Mínimo aceptable 3 (en
+// casos extremos donde haya que cubrir un pico o un fin de semana).
+// Después de un ciclo de 7 el siguiente está cap-ado a 5.
+const MIN_STRETCH = 3
 const MAX_STRETCH = 7
 const IDEAL_MAX_STRETCH = 6
 const MAX_STRETCH_AFTER_FULL = 5
+// Descansos: mínimo 2 días, ideal 3, máximo 4. Después de un ciclo de
+// 7 → exactamente 3 días de descanso obligatorio.
 const MIN_REST = 2
 const PREFERRED_MAX_REST = 3
-const MAX_REST = 3
+const MAX_REST = 4
 const REST_AFTER_FULL = 3
 
 export interface GenerateInput {
@@ -326,38 +331,89 @@ function hasFullWeekendOff(
 }
 
 /**
- * Distribute weekend offs so every employee gets ≥1 full weekend per month.
- * Tries to spread "both" employees across different weekends (so the
- * remaining "both"s can still cover the morning slot if Jordi-equivalents
- * are also resting that weekend).
+ * Distribute synthetic weekend offs so every employee gets ≥1 full weekend
+ * per month — pero sólo si liberar al empleado ese fin de semana no rompe
+ * la cobertura mínima de los días sábado y domingo (incluyendo picos de
+ * demanda). Los empleados que no entren en ningún fin de semana con
+ * capacidad pierden el beneficio el mes y se reporta como aviso
+ * `no-weekend-rest` desde el flujo principal.
  */
 function assignWeekendOffs(
   employees: Employee[],
   weekends: Weekend[],
   approvedRequests: DayRequest[],
   monthISO: string,
+  coverage: NonNullable<GenerateInput['coverage']>,
+  coverageOverrides: CoverageOverride[],
 ): DayRequest[] {
   if (weekends.length === 0) return []
   const synthetic: DayRequest[] = []
   const need = employees.filter(
     (e) => !hasFullWeekendOff(e.id, weekends, approvedRequests),
   )
-  // Sort: morning-or-afternoon-only first (they're constrained), then "both"
-  // — so specialists get assigned first, "both"s spread across remaining slots.
-  // Constrained employees (single allowed shift) first, then those who can
-  // do multiple shifts.
+
+  // Mínimo de cobertura para un día (suma min de los 4 turnos, con override
+  // del pico si aplica). Esa suma define cuántos empleados *como mínimo*
+  // tienen que estar disponibles ese día.
+  const minCoverageOnDay = (dISO: string): number => {
+    const shifts: (keyof NonNullable<GenerateInput['coverage']>)[] = [
+      'morning',
+      'afternoon',
+      'night',
+      'partido',
+    ]
+    let total = 0
+    for (const shift of shifts) {
+      const o = coverageOverrides.find(
+        (x) => x.shift === shift && dISO >= x.start_date && dISO <= x.end_date,
+      )
+      const base = coverage[shift]
+      const min =
+        o && o.min !== null && o.min !== undefined ? o.min : base.min
+      total += min
+    }
+    return total
+  }
+  const employeesNotApprovedOff = (dISO: string): number => {
+    const onOff = employees.filter((e) =>
+      approvedRequests.some(
+        (r) =>
+          r.employee_id === e.id &&
+          r.status === 'approved' &&
+          dISO >= r.start_date &&
+          dISO <= r.end_date,
+      ),
+    ).length
+    return employees.length - onOff
+  }
+
+  // Capacidad por fin de semana = mínimo entre sábado y domingo de
+  // (empleados disponibles - cobertura mínima requerida). Si es 0 o
+  // negativo, no se pueden liberar empleados ese finde sin romper
+  // cobertura.
+  const weekendCapacity = weekends.map((w) => {
+    const surplusSat = employeesNotApprovedOff(w.sat) - minCoverageOnDay(w.sat)
+    const surplusSun = employeesNotApprovedOff(w.sun) - minCoverageOnDay(w.sun)
+    return Math.max(0, Math.min(surplusSat, surplusSun))
+  })
+
+  // Sort: especialistas (1 turno) primero — son los más restringidos.
   const ordered = [...need].sort((a, b) => {
     const sa = (a.shifts ?? ['morning', 'afternoon']).length > 1 ? 1 : 0
     const sb = (b.shifts ?? ['morning', 'afternoon']).length > 1 ? 1 : 0
     return sa - sb
   })
-  // Track how many already assigned per weekend
+
   const perWeekend: number[] = weekends.map(() => 0)
   for (const e of ordered) {
-    let bestIdx = 0
-    for (let i = 1; i < weekends.length; i++) {
-      if (perWeekend[i] < perWeekend[bestIdx]) bestIdx = i
+    let bestIdx = -1
+    for (let i = 0; i < weekends.length; i++) {
+      if (perWeekend[i] >= weekendCapacity[i]) continue
+      if (bestIdx === -1 || perWeekend[i] < perWeekend[bestIdx]) {
+        bestIdx = i
+      }
     }
+    if (bestIdx === -1) continue // sin capacidad en ningún finde
     const w = weekends[bestIdx]
     perWeekend[bestIdx]++
     synthetic.push({
@@ -392,6 +448,8 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     weekendsInMonth,
     input.approvedRequests,
     input.monthISO,
+    input.coverage ?? DEFAULT_COVERAGE,
+    input.coverageOverrides ?? [],
   )
   const allOffs: DayRequest[] = [
     ...input.approvedRequests,
