@@ -624,6 +624,91 @@ h2 { font-size: 1.15rem; margin: 0 0 0.5rem; }
   color: #d97706;
 }
 
+/* ============== PEAKS STRIP (above Cronograma actions) ============== */
+.peaks-strip-wrap {
+  margin: 0.6rem 0 0.4rem;
+}
+.peaks-strip-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+.peaks-strip-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.peaks-strip {
+  display: flex;
+  gap: 0.3rem;
+  overflow-x: auto;
+  padding: 0.25rem 0.1rem;
+  scrollbar-width: thin;
+}
+.peaks-day {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  min-height: 48px;
+  padding: 0.25rem 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--text);
+  transition: background 0.12s, border-color 0.12s;
+}
+.peaks-day:hover {
+  border-color: var(--primary);
+}
+.peaks-day.weekend {
+  background: var(--surface-alt, rgba(148, 163, 184, 0.08));
+}
+.peaks-day.has-peak {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.55);
+}
+.peaks-day-num {
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.peaks-day-dow {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+.peaks-day-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #d97706;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.peaks-day-list {
+  margin: 0.5rem 0 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
 /* ============== ANNUAL CALENDAR ============== */
 .employee-picker {
   display: flex;

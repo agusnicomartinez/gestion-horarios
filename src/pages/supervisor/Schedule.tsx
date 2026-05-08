@@ -8,6 +8,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { db } from '../../lib/db'
+import PeaksStrip from '../../components/PeaksStrip'
 import {
   carryOverFromEntries,
   generateSchedule,
@@ -174,6 +175,12 @@ export default function SupervisorSchedule() {
     }
     return new Set<string>()
   }, [scopeKind, scopeIdValue, categories])
+  // Categories the user can pick when creating a pico — always all in the
+  // current department, even if scope is a single category.
+  const peakFormCategories = useMemo(
+    () => categories.filter((c) => c.department_id === departmentId),
+    [categories, departmentId],
+  )
 
   async function onGenerate() {
     setBusy(true)
@@ -463,6 +470,17 @@ export default function SupervisorSchedule() {
           />
         </div>
       </header>
+
+      {departmentId && (
+        <PeaksStrip
+          monthISO={targetMonth}
+          formCategories={peakFormCategories}
+          scopedCategoryIds={scopedCategoryIds}
+          overrides={overrides}
+          allCategories={categories}
+          onChange={reload}
+        />
+      )}
 
       <div className="action-bar">
         <div className="action-bar-left">

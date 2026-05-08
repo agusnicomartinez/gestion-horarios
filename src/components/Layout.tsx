@@ -2,7 +2,6 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   CalendarDays,
   CalendarRange,
-  TrendingUp,
   Inbox,
   Users,
   Settings,
@@ -22,7 +21,6 @@ interface NavItem {
 const SUPERVISOR_NAV: NavItem[] = [
   { to: '/supervisor', label: 'Cronograma', Icon: CalendarDays },
   { to: '/supervisor/calendar', label: 'Calendario', Icon: CalendarRange },
-  { to: '/supervisor/peaks', label: 'Picos', Icon: TrendingUp },
   { to: '/supervisor/requests', label: 'Solicitudes', Icon: Inbox },
   { to: '/supervisor/employees', label: 'Empleados', Icon: Users },
   { to: '/supervisor/settings', label: 'Ajustes', Icon: Settings },
