@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  RefreshCw,
+  CheckCircle2,
+  FileText,
+  Share2,
+  MoreHorizontal,
+  Sparkles,
+} from 'lucide-react'
 import { db } from '../../lib/db'
 import {
   carryOverFromEntries,
@@ -40,6 +48,30 @@ function shiftAllowedFor(
   return (emp.shifts ?? ['morning', 'afternoon']).includes(shift)
 }
 
+const SHIFT_LETTER: Record<Shift, string> = {
+  off: 'L',
+  morning: 'M',
+  afternoon: 'T',
+  night: 'N',
+  partido: 'P',
+  vacation: 'V',
+  holiday: 'F',
+  personal: 'DP',
+  sick: 'B',
+}
+
+const CELL_OPTIONS: Shift[] = [
+  'off',
+  'morning',
+  'afternoon',
+  'night',
+  'partido',
+  'vacation',
+  'holiday',
+  'personal',
+  'sick',
+]
+
 export default function SupervisorSchedule() {
   const [targetMonth, setTargetMonth] = useState<string>(monthKey(nextMonth(new Date())))
   const [departments, setDepartments] = useState<Department[]>([])
@@ -53,6 +85,24 @@ export default function SupervisorSchedule() {
   const [holidays, setHolidays] = useState<PublicHoliday[]>([])
   const [overrides, setOverrides] = useState<CoverageOverride[]>([])
   const [busy, setBusy] = useState(false)
+  const [overflowOpen, setOverflowOpen] = useState(false)
+  const [editingCell, setEditingCell] = useState<{
+    employeeId: string
+    date: string
+    shift: Shift
+  } | null>(null)
+  const overflowRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!overflowOpen) return
+    function onClick(e: MouseEvent) {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false)
+      }
+    }
+    document.addEventListener('click', onClick)
+    return () => document.removeEventListener('click', onClick)
+  }, [overflowOpen])
 
   async function reload() {
     const [emps, schedulesAll, requestsAll, holidaysAll, deptsAll, catsAll, ovsAll] =
@@ -359,35 +409,66 @@ export default function SupervisorSchedule() {
         </div>
       </header>
 
-      <div className="actions sticky">
-        <button onClick={onGenerate} disabled={busy || employees.length === 0}>
-          {busy ? 'Generando...' : schedule ? 'Regenerar' : 'Generar propuesta'}
-        </button>
-        {schedule && schedule.status === 'draft' && (
-          <button onClick={onPublish}>Publicar</button>
-        )}
-        {schedule && schedule.status === 'published' && (
-          <button className="link" onClick={onUnpublish}>Despublicar</button>
-        )}
-        {schedule && (
-          <button className="link" onClick={onDownloadPdf}>
-            📄 PDF
+      <div className="action-bar">
+        <div className="action-bar-left">
+          <button onClick={onGenerate} disabled={busy || employees.length === 0}>
+            {schedule ? <RefreshCw size={16} /> : <Sparkles size={16} />}
+            {busy ? 'Generando…' : schedule ? 'Regenerar' : 'Generar propuesta'}
           </button>
-        )}
+          {schedule && schedule.status === 'draft' && (
+            <button className="secondary" onClick={onPublish}>
+              <CheckCircle2 size={16} /> Publicar
+            </button>
+          )}
+          {schedule && (
+            <span className={`badge status-${schedule.status}`}>
+              {schedule.status === 'published' ? 'Publicado' : 'Borrador'}
+            </span>
+          )}
+        </div>
         {schedule && (
-          <button className="link" onClick={onSharePdf}>
-            📤 Compartir
-          </button>
-        )}
-        {schedule && (
-          <button className="link danger" onClick={onClear} disabled={busy}>
-            Borrar
-          </button>
-        )}
-        {schedule && (
-          <span className={`badge status-${schedule.status}`}>
-            {schedule.status === 'published' ? 'Publicado' : 'Borrador'}
-          </span>
+          <div className="action-bar-right">
+            <button className="ghost" onClick={onDownloadPdf} title="Descargar PDF">
+              <FileText size={16} /> <span className="action-label">PDF</span>
+            </button>
+            <button className="ghost" onClick={onSharePdf} title="Compartir">
+              <Share2 size={16} /> <span className="action-label">Compartir</span>
+            </button>
+            <div className="overflow-wrap" ref={overflowRef}>
+              <button
+                className="ghost icon-only"
+                onClick={() => setOverflowOpen((v) => !v)}
+                aria-label="Más opciones"
+              >
+                <MoreHorizontal size={18} />
+              </button>
+              {overflowOpen && (
+                <div className="overflow-menu" role="menu">
+                  {schedule.status === 'published' && (
+                    <button
+                      className="ghost"
+                      onClick={() => {
+                        setOverflowOpen(false)
+                        onUnpublish()
+                      }}
+                    >
+                      Despublicar
+                    </button>
+                  )}
+                  <button
+                    className="ghost danger"
+                    onClick={() => {
+                      setOverflowOpen(false)
+                      onClear()
+                    }}
+                    disabled={busy}
+                  >
+                    Borrar cronograma
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
@@ -475,21 +556,15 @@ export default function SupervisorSchedule() {
                       const shift: Shift = entry?.shift ?? 'off'
                       return (
                         <td key={dISO} className={`shift-cell shift-${shift}`}>
-                          <select
-                            value={shift}
-                            onChange={(ev) => onCellChange(e.id, dISO, ev.target.value as Shift)}
+                          <button
+                            className="cell-btn"
                             title={shiftTitle(shift)}
+                            onClick={() =>
+                              setEditingCell({ employeeId: e.id, date: dISO, shift })
+                            }
                           >
-                            <option value="off">L</option>
-                            <option value="morning">M</option>
-                            <option value="afternoon">T</option>
-                            <option value="night">N</option>
-                            <option value="partido">P</option>
-                            <option value="vacation">V</option>
-                            <option value="holiday">F</option>
-                            <option value="personal">DP</option>
-                            <option value="sick">B</option>
-                          </select>
+                            {SHIFT_LETTER[shift]}
+                          </button>
                         </td>
                       )
                     })}
@@ -500,6 +575,41 @@ export default function SupervisorSchedule() {
           </div>
         </>
       )}
+      {editingCell && (() => {
+        const emp = employees.find((x) => x.id === editingCell.employeeId)
+        const dateLabel = format(fromISO(editingCell.date), 'EEEE d MMM')
+        const close = () => setEditingCell(null)
+        return (
+          <div className="modal-backdrop" onClick={close}>
+            <div className="modal cell-sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="cell-sheet-head">
+                <div>
+                  <strong>{emp?.full_name ?? '—'}</strong>
+                  <div className="muted small" style={{ textTransform: 'capitalize' }}>
+                    {dateLabel}
+                  </div>
+                </div>
+                <button className="ghost icon-only" onClick={close}>✕</button>
+              </div>
+              <div className="cell-grid">
+                {CELL_OPTIONS.map((s) => (
+                  <button
+                    key={s}
+                    className={`cell-chip shift-${s} ${s === editingCell.shift ? 'active' : ''}`}
+                    onClick={async () => {
+                      await onCellChange(editingCell.employeeId, editingCell.date, s)
+                      close()
+                    }}
+                  >
+                    <span className="cell-chip-letter">{SHIFT_LETTER[s]}</span>
+                    <span className="cell-chip-label">{shiftTitle(s)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </section>
   )
 }
