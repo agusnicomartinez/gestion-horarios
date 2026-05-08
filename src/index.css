@@ -150,15 +150,21 @@ input, select {
   border-radius: var(--radius-md);
   padding: 0 12px;
   height: 36px;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
 }
-input[type="number"] { padding: 0 8px; }
-select { padding: 0 32px 0 12px; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2364748b'%3E%3Cpath d='M5.5 7.5l4.5 4.5 4.5-4.5z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; background-size: 18px; }
+input[type="number"] { padding: 0 8px; max-width: 88px; }
+input[type="month"], input[type="date"] { max-width: 170px; }
+select { padding: 0 32px 0 12px; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2364748b'%3E%3Cpath d='M5.5 7.5l4.5 4.5 4.5-4.5z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; background-size: 18px; max-width: 240px; }
 input:focus, select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-soft);
 }
+
+/* Inside form labels, fields fill the column */
+label input, label select { width: 100%; max-width: none; margin-top: 0.25rem; }
+.coverage-grid input, .bounds-table input { max-width: none; }
 
 label {
   display: block;
