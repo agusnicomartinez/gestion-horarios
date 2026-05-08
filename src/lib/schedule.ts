@@ -391,6 +391,7 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     shift: 'morning' | 'afternoon' | 'night' | 'partido',
     dailyAssignment: Map<string, Shift>,
     dISO: string,
+    urgent: boolean = false,
   ): boolean => {
     if (dailyAssignment.has(e.id)) return false
     if (!shiftAllowed(e, shift)) return false
@@ -415,6 +416,10 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     // by their assigned weekend off is already suppressed.
     const empShifts = e.shifts ?? ['morning', 'afternoon']
     if (empShifts.length === 1) return true
+    // Urgent placement (we're below the shift's required minimum, e.g.
+    // a Pico de Demanda forces extra coverage): also bypass canSustain.
+    // Hard rest rules (12h gap, min rest, MAX_STRETCH) still apply above.
+    if (urgent) return true
     // Optional fresh start for "both" employees: only if can sustain MIN_STRETCH.
     return canSustainStretch(e.id, dISO, allOffs)
   }
@@ -442,9 +447,10 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
     shift: 'morning' | 'afternoon' | 'night' | 'partido',
     dailyAssignment: Map<string, Shift>,
     dISO: string,
+    urgent: boolean = false,
   ): string | null => {
     const candidates = input.employees.filter((e) =>
-      isShiftEligible(e, shift, dailyAssignment, dISO),
+      isShiftEligible(e, shift, dailyAssignment, dISO, urgent),
     )
     if (candidates.length === 0) return null
     candidates.sort((a, b) => {
@@ -523,7 +529,13 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
           return isShiftEligible(e, shift, dailyAssignment, dISO)
         })
         if (placed >= eff.min && !pending) break
-        const id = pickShiftWorker(shift, dailyAssignment, dISO)
+        // While we're below the required minimum we accept candidates
+        // that would otherwise be filtered out by canSustainStretch.
+        // This is what lets a Pico de Demanda actually pull resting
+        // employees in even when their next weekend off would shorten
+        // the stretch.
+        const urgent = placed < eff.min
+        const id = pickShiftWorker(shift, dailyAssignment, dISO, urgent)
         if (!id) break
         dailyAssignment.set(id, shift)
         placed++
