@@ -466,7 +466,10 @@ export default function SupervisorSchedule() {
           <input
             type="month"
             value={targetMonth.slice(0, 7)}
-            onChange={(e) => setTargetMonth(`${e.target.value}-01`)}
+            onChange={(e) => {
+              if (!e.target.value) return
+              setTargetMonth(`${e.target.value}-01`)
+            }}
           />
         </div>
       </header>
