@@ -204,6 +204,47 @@ export default function SupervisorSchedule() {
     reload()
   }
 
+  async function buildPdf() {
+    const dept = departments.find((d) => d.id === departmentId)
+    const { buildSchedulePdf } = await import('../../lib/exportPdf')
+    return buildSchedulePdf({
+      monthISO: targetMonth,
+      departmentName: dept?.name ?? 'Cronograma',
+      employees,
+      categories,
+      entries,
+    })
+  }
+
+  async function onDownloadPdf() {
+    if (!schedule) return
+    const { downloadPdf } = await import('../../lib/exportPdf')
+    downloadPdf(await buildPdf())
+  }
+
+  async function onSharePdf() {
+    if (!schedule) return
+    const dept = departments.find((d) => d.id === departmentId)
+    const monthLabel = targetMonth.slice(0, 7)
+    const text = `Cronograma — ${dept?.name ?? ''} — ${monthLabel}`
+    const { sharePdf } = await import('../../lib/exportPdf')
+    const pdf = await buildPdf()
+    const result = await sharePdf(pdf, text)
+    if (result === 'downloaded') {
+      const ok = confirm(
+        'Tu navegador no permite compartir archivos directamente. El PDF se descargó.\n\n¿Querés abrir WhatsApp Web o tu cliente de mail con un mensaje sugerido? (después adjuntás el PDF a mano)',
+      )
+      if (ok) {
+        const choice = prompt('Escribí "wa" para WhatsApp o "mail" para email', 'wa')
+        if (choice === 'wa') {
+          window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+        } else if (choice === 'mail') {
+          window.open(`mailto:?subject=${encodeURIComponent(text)}&body=${encodeURIComponent(text + '\n\n(Adjuntá el PDF descargado)')}`, '_blank')
+        }
+      }
+    }
+  }
+
   async function onClear() {
     if (!schedule) return
     if (!confirm(`Borrar el cronograma de ${targetMonth.slice(0, 7)}? Esta acción no se puede deshacer.`)) return
@@ -327,6 +368,16 @@ export default function SupervisorSchedule() {
         )}
         {schedule && schedule.status === 'published' && (
           <button className="link" onClick={onUnpublish}>Despublicar</button>
+        )}
+        {schedule && (
+          <button className="link" onClick={onDownloadPdf}>
+            📄 PDF
+          </button>
+        )}
+        {schedule && (
+          <button className="link" onClick={onSharePdf}>
+            📤 Compartir
+          </button>
         )}
         {schedule && (
           <button className="link danger" onClick={onClear} disabled={busy}>
