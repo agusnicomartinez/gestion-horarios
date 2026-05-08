@@ -10,7 +10,7 @@ export default function Requests() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [categories, setCategories] = useState<Category[]>([])
-  const [departmentId, setDepartmentId] = useState<string>('')
+  const [scope, setScope] = useState<string>('')
   const [targetMonth, setTargetMonth] = useState<string>(monthKey(nextMonth(new Date())))
 
   async function reload() {
@@ -25,7 +25,7 @@ export default function Requests() {
     setEmployees(e)
     setDepartments(ds)
     setCategories(cs)
-    if (!departmentId && ds.length > 0) setDepartmentId(ds[0].id)
+    if (!scope && ds.length > 0) setScope(`dept:${ds[0].id}`)
   }
 
   useEffect(() => {
@@ -33,11 +33,17 @@ export default function Requests() {
   }, [])
 
   const filtered = useMemo(() => {
-    if (!departmentId) return requests.filter((r) => r.target_month === targetMonth)
-    const catIds = new Set(categories.filter((c) => c.department_id === departmentId).map((c) => c.id))
+    if (!scope) return requests.filter((r) => r.target_month === targetMonth)
+    const [kind, id] = scope.split(':')
+    let catIds: Set<string>
+    if (kind === 'cat') {
+      catIds = new Set([id])
+    } else {
+      catIds = new Set(categories.filter((c) => c.department_id === id).map((c) => c.id))
+    }
     const empIds = new Set(employees.filter((e) => e.category_id && catIds.has(e.category_id)).map((e) => e.id))
     return requests.filter((r) => r.target_month === targetMonth && empIds.has(r.employee_id))
-  }, [requests, targetMonth, employees, categories, departmentId])
+  }, [requests, targetMonth, employees, categories, scope])
 
   const employeeMap = useMemo(() => {
     const m = new Map<string, Employee>()
@@ -59,11 +65,21 @@ export default function Requests() {
       <header className="section-head">
         <h1>Solicitudes</h1>
         <div className="actions">
-          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+          <select value={scope} onChange={(e) => setScope(e.target.value)}>
             {departments.length === 0 && <option value="">— sin departamentos —</option>}
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
+            {departments.map((d) => {
+              const deptCats = categories.filter((c) => c.department_id === d.id)
+              return (
+                <optgroup key={d.id} label={d.name}>
+                  <option value={`dept:${d.id}`}>{d.name} (todas)</option>
+                  {deptCats.map((c) => (
+                    <option key={c.id} value={`cat:${c.id}`}>
+                      &nbsp;&nbsp;↳ {c.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )
+            })}
           </select>
           <input
             type="month"

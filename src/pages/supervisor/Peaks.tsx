@@ -29,7 +29,7 @@ export default function Peaks() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [overrides, setOverrides] = useState<CoverageOverride[]>([])
-  const [departmentId, setDepartmentId] = useState<string>('')
+  const [scope, setScope] = useState<string>('')
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<FormState | null>(null)
   const [busy, setBusy] = useState(false)
@@ -43,29 +43,46 @@ export default function Peaks() {
     setDepartments(ds)
     setCategories(cs)
     setOverrides(os)
-    if (!departmentId && ds.length > 0) setDepartmentId(ds[0].id)
+    if (!scope && ds.length > 0) setScope(`dept:${ds[0].id}`)
   }
 
   useEffect(() => {
     reload()
   }, [])
 
-  const deptCategories = useMemo(
-    () => categories.filter((c) => c.department_id === departmentId),
-    [categories, departmentId],
-  )
+  const scopeCategories = useMemo(() => {
+    if (!scope) return [] as Category[]
+    const [kind, id] = scope.split(':')
+    if (kind === 'cat') {
+      const cat = categories.find((c) => c.id === id)
+      return cat ? [cat] : []
+    }
+    return categories.filter((c) => c.department_id === id)
+  }, [categories, scope])
+
+  // Categories available in the form selector — when scope is a single
+  // category we still allow picking any of the department's categories.
+  const formCategories = useMemo(() => {
+    if (!scope) return [] as Category[]
+    const [kind, id] = scope.split(':')
+    const deptId =
+      kind === 'cat' ? categories.find((c) => c.id === id)?.department_id ?? '' : id
+    return categories.filter((c) => c.department_id === deptId)
+  }, [categories, scope])
 
   const filtered = useMemo(() => {
-    const catIds = new Set(deptCategories.map((c) => c.id))
+    const catIds = new Set(scopeCategories.map((c) => c.id))
     return [...overrides]
       .filter((o) => catIds.has(o.category_id))
       .sort((a, b) => a.start_date.localeCompare(b.start_date))
-  }, [overrides, deptCategories])
+  }, [overrides, scopeCategories])
 
   function openCreate() {
-    if (deptCategories.length === 0) return
+    if (formCategories.length === 0) return
+    const preselected =
+      scope.startsWith('cat:') ? scope.slice(4) : formCategories[0].id
     setForm({
-      category_id: deptCategories[0].id,
+      category_id: preselected,
       shift: 'morning',
       start_date: new Date().toISOString().slice(0, 10),
       end_date: new Date().toISOString().slice(0, 10),
@@ -139,15 +156,23 @@ export default function Peaks() {
       <header className="section-head">
         <h1>Picos de demanda</h1>
         <div className="actions">
-          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+          <select value={scope} onChange={(e) => setScope(e.target.value)}>
             {departments.length === 0 && <option value="">— sin departamentos —</option>}
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
+            {departments.map((d) => {
+              const deptCats = categories.filter((c) => c.department_id === d.id)
+              return (
+                <optgroup key={d.id} label={d.name}>
+                  <option value={`dept:${d.id}`}>{d.name} (todas)</option>
+                  {deptCats.map((c) => (
+                    <option key={c.id} value={`cat:${c.id}`}>
+                      &nbsp;&nbsp;↳ {c.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )
+            })}
           </select>
-          <button onClick={openCreate} disabled={deptCategories.length === 0}>
+          <button onClick={openCreate} disabled={formCategories.length === 0}>
             + Nuevo
           </button>
         </div>
@@ -168,7 +193,7 @@ export default function Peaks() {
               value={form.category_id}
               onChange={(e) => setForm({ ...form, category_id: e.target.value })}
             >
-              {deptCategories.map((c) => (
+              {formCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>

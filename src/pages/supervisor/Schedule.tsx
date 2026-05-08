@@ -76,7 +76,7 @@ export default function SupervisorSchedule() {
   const [targetMonth, setTargetMonth] = useState<string>(monthKey(nextMonth(new Date())))
   const [departments, setDepartments] = useState<Department[]>([])
   const [categories, setCategories] = useState<Category[]>([])
-  const [departmentId, setDepartmentId] = useState<string>('')
+  const [scope, setScope] = useState<string>('')
   const [employees, setEmployees] = useState<Employee[]>([])
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [entries, setEntries] = useState<ScheduleEntry[]>([])
@@ -118,19 +118,34 @@ export default function SupervisorSchedule() {
     setOverrides(ovsAll)
     setDepartments(deptsAll)
     setCategories(catsAll)
-    const dept = departmentId || deptsAll[0]?.id || ''
-    if (!departmentId && dept) setDepartmentId(dept)
-    const catIdsInDept = catsAll.filter((c) => c.department_id === dept).map((c) => c.id)
-    const active = emps.filter((e) => e.active && e.category_id && catIdsInDept.includes(e.category_id))
+    let currentScope = scope
+    if (!currentScope && deptsAll.length > 0) {
+      currentScope = `dept:${deptsAll[0].id}`
+      setScope(currentScope)
+    }
+    const [kind, id] = currentScope.split(':')
+    let dept = ''
+    let scopedCatIds: string[] = []
+    if (kind === 'cat') {
+      const cat = catsAll.find((c) => c.id === id)
+      dept = cat?.department_id ?? ''
+      scopedCatIds = cat ? [cat.id] : []
+    } else if (kind === 'dept') {
+      dept = id
+      scopedCatIds = catsAll.filter((c) => c.department_id === id).map((c) => c.id)
+    }
+    const active = emps.filter((e) => e.active && e.category_id && scopedCatIds.includes(e.category_id))
     setEmployees(active)
     setRequests(requestsAll)
     setHolidays(holidaysAll)
     const sch =
-      schedulesAll.find((s) => s.month === targetMonth && s.department_id === dept) ?? null
+      dept ? schedulesAll.find((s) => s.month === targetMonth && s.department_id === dept) ?? null : null
     setSchedule(sch)
     if (sch) {
       const allEntries = await db.scheduleEntries.list()
-      setEntries(allEntries.filter((e) => e.schedule_id === sch.id))
+      // When scoped to a single category, only show entries of that category's employees.
+      const empIds = new Set(active.map((e) => e.id))
+      setEntries(allEntries.filter((e) => e.schedule_id === sch.id && empIds.has(e.employee_id)))
     } else {
       setEntries([])
     }
@@ -138,7 +153,27 @@ export default function SupervisorSchedule() {
 
   useEffect(() => {
     reload()
-  }, [targetMonth, departmentId])
+  }, [targetMonth, scope])
+
+  // Derived values used across handlers and rendering.
+  const scopeKind = scope.split(':')[0] as '' | 'dept' | 'cat'
+  const scopeIdValue = scope.split(':')[1] ?? ''
+  const departmentId = useMemo(() => {
+    if (scopeKind === 'cat') {
+      return categories.find((c) => c.id === scopeIdValue)?.department_id ?? ''
+    }
+    if (scopeKind === 'dept') return scopeIdValue
+    return ''
+  }, [scopeKind, scopeIdValue, categories])
+  const scopedCategoryIds = useMemo(() => {
+    if (scopeKind === 'cat') return new Set<string>(scopeIdValue ? [scopeIdValue] : [])
+    if (scopeKind === 'dept') {
+      return new Set(
+        categories.filter((c) => c.department_id === scopeIdValue).map((c) => c.id),
+      )
+    }
+    return new Set<string>()
+  }, [scopeKind, scopeIdValue, categories])
 
   async function onGenerate() {
     setBusy(true)
@@ -157,12 +192,18 @@ export default function SupervisorSchedule() {
         // Preserve cells the supervisor manually edited. Request-sourced
         // entries are regenerated from the current approval state so that
         // toggling a request to rejected (or approving a new one) is
-        // reflected on the next regenerate.
+        // reflected on the next regenerate. When scoped to a single
+        // category, only the entries of that category's employees are
+        // wiped — entries of other categories in the same department are
+        // left untouched.
+        const scopedEmpIds = new Set(employees.map((e) => e.id))
         const existing = (await db.scheduleEntries.list()).filter(
-          (e) => e.schedule_id === sch!.id,
+          (e) => e.schedule_id === sch!.id && scopedEmpIds.has(e.employee_id),
         )
         manualEntries = existing.filter((e) => e.source === 'manual')
-        await db.scheduleEntries.removeWhere((e) => e.schedule_id === sch!.id)
+        await db.scheduleEntries.removeWhere(
+          (e) => e.schedule_id === sch!.id && scopedEmpIds.has(e.employee_id),
+        )
         sch = await db.schedules.update(sch.id, { status: 'draft', published_at: null })
       }
 
@@ -190,8 +231,12 @@ export default function SupervisorSchedule() {
       )
 
       // Run the generator once per category so each one uses its own
-      // coverage config (M/T/N/P). Merge the resulting entries.
-      const catsInDept = categories.filter((c) => c.department_id === departmentId)
+      // coverage config (M/T/N/P). Merge the resulting entries. When
+      // the user scoped the view to a single category, only that one
+      // gets regenerated.
+      const catsInDept = categories.filter(
+        (c) => c.department_id === departmentId && scopedCategoryIds.has(c.id),
+      )
       const generatedEntries: Omit<ScheduleEntry, 'id' | 'schedule_id'>[] = []
       const allViolations: Violation[] = []
       for (const cat of catsInDept) {
@@ -395,11 +440,21 @@ export default function SupervisorSchedule() {
       <header className="section-head">
         <h1>Cronograma</h1>
         <div className="actions">
-          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+          <select value={scope} onChange={(e) => setScope(e.target.value)}>
             {departments.length === 0 && <option value="">— sin departamentos —</option>}
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
+            {departments.map((d) => {
+              const deptCats = categories.filter((c) => c.department_id === d.id)
+              return (
+                <optgroup key={d.id} label={d.name}>
+                  <option value={`dept:${d.id}`}>{d.name} (todas)</option>
+                  {deptCats.map((c) => (
+                    <option key={c.id} value={`cat:${c.id}`}>
+                      &nbsp;&nbsp;↳ {c.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )
+            })}
           </select>
           <input
             type="month"
@@ -499,9 +554,7 @@ export default function SupervisorSchedule() {
                       (o) =>
                         dISO >= o.start_date &&
                         dISO <= o.end_date &&
-                        categories.some(
-                          (c) => c.id === o.category_id && c.department_id === departmentId,
-                        ),
+                        scopedCategoryIds.has(o.category_id),
                     )
                     const tooltip = dayOverrides
                       .map((o) => {
