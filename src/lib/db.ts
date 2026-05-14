@@ -1,5 +1,6 @@
 import type {
   Category,
+  ConventionSettings,
   CoverageOverride,
   DayRequest,
   Department,
@@ -10,6 +11,20 @@ import type {
   ScheduleEntry,
   Supervisor,
 } from '../types/database'
+
+/**
+ * Convenio actual del centro de trabajo. Cambiar estos valores sólo si
+ * cambia formalmente el convenio — no son preferencias operativas.
+ */
+export const DEFAULT_CONVENTION: ConventionSettings = {
+  max_consecutive_work_days: 7,
+  min_consecutive_work_days: 3,
+  min_rest_days: 2,
+  max_rest_days: 4,
+  rest_after_max_stretch: 3,
+  min_hours_between_shifts: 12,
+  require_full_weekend_off_monthly: true,
+}
 
 const PREFIX = 'gh:'
 
@@ -87,13 +102,20 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   personal_days_per_year: 3,
   holiday_days_per_year: 14,
   annual_work_hours: 1783,
+  convention: DEFAULT_CONVENTION,
   updated_at: new Date().toISOString(),
 }
 
 const settingsTable = {
   async get(): Promise<GlobalSettings> {
     const stored = read<Partial<GlobalSettings>>('settings', {})
-    return { ...DEFAULT_SETTINGS, ...stored }
+    // Merge convention con default por separado para que un objeto parcial
+    // (faltan campos nuevos) no rompa al algoritmo.
+    const convention: ConventionSettings = {
+      ...DEFAULT_CONVENTION,
+      ...(stored.convention ?? {}),
+    }
+    return { ...DEFAULT_SETTINGS, ...stored, convention }
   },
   async update(patch: Partial<GlobalSettings>): Promise<GlobalSettings> {
     const current = await settingsTable.get()
@@ -212,6 +234,16 @@ export async function runMigrations(): Promise<void> {
   const want = 'depts_categories_v1'
   const wantShifts = 'employee_shifts_array_v1'
   const wantWorkHours = 'annual_work_hours_v1'
+  const wantConvention = 'convention_v1'
+
+  if (!applied.includes(wantConvention)) {
+    const stored = read<Record<string, unknown>>('settings', {})
+    if (!stored.convention || typeof stored.convention !== 'object') {
+      stored.convention = DEFAULT_CONVENTION
+      stored.updated_at = new Date().toISOString()
+      write('settings', stored)
+    }
+  }
 
   if (!applied.includes(wantWorkHours)) {
     // Replace rest_days_per_year with annual_work_hours = 1783.
@@ -289,5 +321,6 @@ export async function runMigrations(): Promise<void> {
   next.add(want)
   next.add(wantShifts)
   next.add(wantWorkHours)
+  next.add(wantConvention)
   write(MIGRATIONS_KEY, [...next])
 }

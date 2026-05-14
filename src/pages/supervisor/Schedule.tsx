@@ -261,6 +261,7 @@ export default function SupervisorSchedule() {
           annualWorkHours: settings.annual_work_hours,
           coverage: cat.coverage,
           coverageOverrides: catOverrides,
+          convention: settings.convention,
         })
         generatedEntries.push(...result.entries)
         allViolations.push(...result.violations)

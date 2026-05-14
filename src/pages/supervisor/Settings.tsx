@@ -1,6 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { db } from '../../lib/db'
-import type { Category, Department, GlobalSettings, PublicHoliday } from '../../types/database'
+import { db, DEFAULT_CONVENTION } from '../../lib/db'
+import type {
+  Category,
+  ConventionSettings,
+  Department,
+  GlobalSettings,
+  PublicHoliday,
+} from '../../types/database'
 
 export default function Settings() {
   const [settings, setSettings] = useState<GlobalSettings | null>(null)
@@ -9,6 +15,8 @@ export default function Settings() {
   const [personal, setPersonal] = useState(0)
   const [holidayDays, setHolidayDays] = useState(0)
   const [annualHours, setAnnualHours] = useState(0)
+  const [convention, setConvention] = useState<ConventionSettings>(DEFAULT_CONVENTION)
+  const [savingConvention, setSavingConvention] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [newDate, setNewDate] = useState('')
   const [newDescription, setNewDescription] = useState('')
@@ -25,6 +33,7 @@ export default function Settings() {
     setPersonal(s.personal_days_per_year)
     setHolidayDays(s.holiday_days_per_year)
     setAnnualHours(s.annual_work_hours)
+    setConvention(s.convention ?? DEFAULT_CONVENTION)
     const h = await db.publicHolidays.list()
     h.sort((a, b) => a.date.localeCompare(b.date))
     setHolidays(h)
@@ -144,6 +153,52 @@ export default function Settings() {
     reload()
   }
 
+  function validateConvention(c: ConventionSettings): string | null {
+    if (c.min_consecutive_work_days > c.max_consecutive_work_days)
+      return 'El mínimo de días seguidos no puede superar al máximo.'
+    if (c.min_rest_days > c.max_rest_days)
+      return 'El mínimo de descanso no puede superar al máximo.'
+    if (c.rest_after_max_stretch < c.min_rest_days)
+      return 'El descanso tras ciclo máximo no puede ser menor al mínimo de descanso.'
+    if (c.min_hours_between_shifts < 0 || c.min_hours_between_shifts > 24)
+      return 'Las horas entre turnos deben estar entre 0 y 24.'
+    return null
+  }
+
+  async function onSaveConvention(e: FormEvent) {
+    e.preventDefault()
+    const err = validateConvention(convention)
+    if (err) {
+      alert(err)
+      return
+    }
+    setSavingConvention(true)
+    await db.settings.update({ convention })
+    setSavingConvention(false)
+    reload()
+  }
+
+  async function onResetConvention() {
+    if (
+      !confirm(
+        'Restablecer las reglas duras al convenio por defecto? Esto sobrescribe los valores actuales.',
+      )
+    )
+      return
+    setConvention(DEFAULT_CONVENTION)
+    setSavingConvention(true)
+    await db.settings.update({ convention: DEFAULT_CONVENTION })
+    setSavingConvention(false)
+    reload()
+  }
+
+  function updateConvention<K extends keyof ConventionSettings>(
+    key: K,
+    value: ConventionSettings[K],
+  ) {
+    setConvention((c) => ({ ...c, [key]: value }))
+  }
+
   async function onAddHoliday(e: FormEvent) {
     e.preventDefault()
     if (!newDate) return
@@ -196,6 +251,100 @@ export default function Settings() {
         <div className="actions">
           <button type="submit" disabled={savingSettings}>
             {savingSettings ? 'Guardando...' : 'Guardar'}
+          </button>
+        </div>
+      </form>
+
+      <form className="card form" onSubmit={onSaveConvention}>
+        <h2>Reglas del convenio</h2>
+        <p className="muted small">
+          Restricciones inviolables que aplica el generador de cronogramas. Cambialas
+          sólo si cambia formalmente el convenio.
+        </p>
+        <label>
+          Días consecutivos máximos de trabajo
+          <input
+            type="number"
+            min={1}
+            value={convention.max_consecutive_work_days}
+            onChange={(e) =>
+              updateConvention('max_consecutive_work_days', +e.target.value)
+            }
+          />
+        </label>
+        <label>
+          Días consecutivos mínimos de trabajo
+          <input
+            type="number"
+            min={1}
+            value={convention.min_consecutive_work_days}
+            onChange={(e) =>
+              updateConvention('min_consecutive_work_days', +e.target.value)
+            }
+          />
+        </label>
+        <label>
+          Días mínimos de descanso entre ciclos
+          <input
+            type="number"
+            min={1}
+            value={convention.min_rest_days}
+            onChange={(e) => updateConvention('min_rest_days', +e.target.value)}
+          />
+        </label>
+        <label>
+          Días máximos de descanso entre ciclos
+          <input
+            type="number"
+            min={1}
+            value={convention.max_rest_days}
+            onChange={(e) => updateConvention('max_rest_days', +e.target.value)}
+          />
+        </label>
+        <label>
+          Descanso tras ciclo máximo (días)
+          <input
+            type="number"
+            min={1}
+            value={convention.rest_after_max_stretch}
+            onChange={(e) =>
+              updateConvention('rest_after_max_stretch', +e.target.value)
+            }
+          />
+        </label>
+        <label>
+          Horas mínimas entre turnos
+          <input
+            type="number"
+            min={0}
+            max={24}
+            value={convention.min_hours_between_shifts}
+            onChange={(e) =>
+              updateConvention('min_hours_between_shifts', +e.target.value)
+            }
+          />
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={convention.require_full_weekend_off_monthly}
+            onChange={(e) =>
+              updateConvention('require_full_weekend_off_monthly', e.target.checked)
+            }
+          />
+          Cada empleado debe tener un fin de semana completo libre al mes
+        </label>
+        <div className="actions">
+          <button type="submit" disabled={savingConvention}>
+            {savingConvention ? 'Guardando...' : 'Guardar convenio'}
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={onResetConvention}
+            disabled={savingConvention}
+          >
+            Restablecer al convenio por defecto
           </button>
         </div>
       </form>

@@ -67,6 +67,31 @@ export interface Supervisor {
   created_at: string
 }
 
+/**
+ * Reglas duras del convenio de trabajo. Estos valores se aplican como
+ * restricciones inviolables al generar el cronograma. Configurables sólo
+ * para acomodar cambios futuros del convenio — los defaults reflejan el
+ * convenio actual y NO deberían modificarse sin un cambio formal.
+ */
+export interface ConventionSettings {
+  /** Máximo de días consecutivos trabajados. */
+  max_consecutive_work_days: number
+  /** Mínimo de días consecutivos trabajados. */
+  min_consecutive_work_days: number
+  /** Mínimo de días consecutivos de descanso entre ciclos. */
+  min_rest_days: number
+  /** Máximo de días consecutivos de descanso entre ciclos. */
+  max_rest_days: number
+  /** Descanso obligatorio tras alcanzar `max_consecutive_work_days`. */
+  rest_after_max_stretch: number
+  /** Horas mínimas de descanso entre el fin de un turno y el inicio del
+   *  siguiente. */
+  min_hours_between_shifts: number
+  /** Cada empleado debe tener ≥1 fin de semana completo (sábado +
+   *  domingo) libre al mes. */
+  require_full_weekend_off_monthly: boolean
+}
+
 export interface GlobalSettings {
   id: number
   vacation_days_per_year: number
@@ -76,6 +101,9 @@ export interface GlobalSettings {
    *  cómputo). Vacaciones / festivos / días personales / bajas no suman
    *  ni restan; el objetivo mensual se ajusta proporcionalmente. */
   annual_work_hours: number
+  /** Reglas duras del convenio. Si falta (datos antiguos) se asume el
+   *  default fijado en `DEFAULT_CONVENTION` en `db.ts`. */
+  convention?: ConventionSettings
   updated_at: string
 }
 
