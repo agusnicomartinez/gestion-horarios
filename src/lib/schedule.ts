@@ -512,7 +512,14 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
         : shift === 'afternoon'
           ? s.totalAfternoon
           : 0
-    return [isSpecialist, continuity, transitionPick, t, myShiftCount, s.totalShifts]
+    // Orden de prioridad: especialista del turno → etapa del ciclo
+    // (forzados/mid-stretch antes que los pasados-de-ideal) → continuidad
+    // → preferencia por mantener stretches largos → balance del turno.
+    // Importante: `t` (tier) va antes que continuidad para que un
+    // empleado fresco-forzado (tier 0) gane sobre alguien que ya pasó
+    // el máximo ideal (tier 3) — antes el orden inverso provocaba que
+    // las series se alargaran a 7 días aunque hubiera relevo descansado.
+    return [isSpecialist, t, continuity, transitionPick, myShiftCount, s.totalShifts]
   }
 
   const pickShiftWorker = (
@@ -596,8 +603,15 @@ export function generateSchedule(input: GenerateInput): GenerateOutput {
           if (dailyAssignment.has(e.id)) return false
           const s = stats.get(e.id)!
           const t = tier(s)
-          if (t >= 5) return false
-          if (t === 2) return false
+          // Sólo los obligados (tier 0 = mid-stretch < mínimo o forzado
+          // fresco) y los preferidos (tier 1 = mid-stretch dentro del
+          // rango ideal) fuerzan al loop a seguir colocando una vez
+          // cubierto el mínimo. Los empleados ya pasados del rango
+          // ideal (tier 3, stretchDay >= 6) NO empujan: si no tienen
+          // que estar, terminan su ciclo en 6 y descansan, evitando
+          // que dos personas exploten su 7º día simultáneamente y
+          // dejen huecos en el descanso obligatorio posterior.
+          if (t !== 0 && t !== 1) return false
           return isShiftEligible(e, shift, dailyAssignment, dISO)
         })
         if (placed >= eff.min && !pending) break
